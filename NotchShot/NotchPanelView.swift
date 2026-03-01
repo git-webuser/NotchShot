@@ -1,4 +1,7 @@
 import SwiftUI
+import AppKit
+import CoreGraphics
+import Combine
 
 struct NotchPanelView: View {
     let cornerRadius: CGFloat
@@ -34,11 +37,8 @@ struct NotchPanelView: View {
         }
         .frame(height: height)
         .allowsHitTesting(interaction.isEnabled)
-        // не даём SwiftUI "переанимировать" hit-testing сам по себе
         .animation(nil, value: interaction.isEnabled)
     }
-
-    // MARK: - Notch layout (“весы”)
 
     private var notchLayout: some View {
         GeometryReader { geo in
@@ -63,7 +63,6 @@ struct NotchPanelView: View {
                         .padding(.trailing, edgeSafe)
                         .frame(width: shoulders, alignment: .trailing)
                 }
-                // ✅ более заметный “system-like” эффект
                 .opacity(contentOpacity)
                 .blur(radius: contentBlur)
                 .scaleEffect(contentScale)
@@ -71,8 +70,6 @@ struct NotchPanelView: View {
             }
         }
     }
-
-    // MARK: - No notch layout (таблетка)
 
     private var noNotchLayout: some View {
         ZStack {
@@ -94,8 +91,6 @@ struct NotchPanelView: View {
             .frame(height: height)
         }
     }
-
-    // MARK: - Cells
 
     private var closeCell: some View {
         Button(action: onClose) {
@@ -200,11 +195,7 @@ struct NotchPanelView: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - Content animation helpers (делают эффект заметнее)
-
     private var contentOpacity: Double {
-        // Чтобы не было “чуть-чуть”, делаем hold в начале:
-        // первые ~15% прогресса почти 0, затем быстро растёт.
         let t = interaction.contentVisibility
         if t <= 0 { return 0.0 }
         if t >= 1 { return 1.0 }
