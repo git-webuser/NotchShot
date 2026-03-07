@@ -3,7 +3,6 @@ import SwiftUI
 /// Shape, повторяющий Notch.svg (viewBox: 0 0 536 34)
 struct NotchShape: Shape {
     func path(in rect: CGRect) -> Path {
-        // SVG viewBox
         let vbW: CGFloat = 536
         let vbH: CGFloat = 34
 
@@ -16,105 +15,22 @@ struct NotchShape: Shape {
 
         var path = Path()
 
-        // SVG: M7 0
         path.move(to: p(7, 0))
-
-        // C9.80026 0 11.2004 0 12.27 0.544967
-        path.addCurve(
-            to: p(12.27, 0.544967),
-            control1: p(9.80026, 0),
-            control2: p(11.2004, 0)
-        )
-
-        // C13.2108 1.02433 13.9757 1.78924 14.455 2.73005
-        path.addCurve(
-            to: p(14.455, 2.73005),
-            control1: p(13.2108, 1.02433),
-            control2: p(13.9757, 1.78924)
-        )
-
-        // C15 3.79961 15 5.19974 15 8
-        path.addCurve(
-            to: p(15, 8),
-            control1: p(15, 3.79961),
-            control2: p(15, 5.19974)
-        )
-
-        // V18
+        path.addCurve(to: p(12.27, 0.544967), control1: p(9.80026, 0), control2: p(11.2004, 0))
+        path.addCurve(to: p(14.455, 2.73005), control1: p(13.2108, 1.02433), control2: p(13.9757, 1.78924))
+        path.addCurve(to: p(15, 8), control1: p(15, 3.79961), control2: p(15, 5.19974))
         path.addLine(to: p(15, 18))
-
-        // C15 23.6005 15 26.4008 16.0899 28.5399
-        path.addCurve(
-            to: p(16.0899, 28.5399),
-            control1: p(15, 23.6005),
-            control2: p(15, 26.4008)
-        )
-
-        // C17.0487 30.4215 18.5785 31.9513 20.4601 32.9101
-        path.addCurve(
-            to: p(20.4601, 32.9101),
-            control1: p(17.0487, 30.4215),
-            control2: p(18.5785, 31.9513)
-        )
-
-        // C22.5992 34 25.3995 34 31 34
-        path.addCurve(
-            to: p(31, 34),
-            control1: p(22.5992, 34),
-            control2: p(25.3995, 34)
-        )
-
-        // H505
+        path.addCurve(to: p(16.0899, 28.5399), control1: p(15, 23.6005), control2: p(15, 26.4008))
+        path.addCurve(to: p(20.4601, 32.9101), control1: p(17.0487, 30.4215), control2: p(18.5785, 31.9513))
+        path.addCurve(to: p(31, 34), control1: p(22.5992, 34), control2: p(25.3995, 34))
         path.addLine(to: p(505, 34))
-
-        // C510.601 34 513.401 34 515.54 32.9101
-        path.addCurve(
-            to: p(515.54, 32.9101),
-            control1: p(510.601, 34),
-            control2: p(513.401, 34)
-        )
-
-        // C517.422 31.9513 518.951 30.4215 519.91 28.5399
-        path.addCurve(
-            to: p(519.91, 28.5399),
-            control1: p(517.422, 31.9513),
-            control2: p(518.951, 30.4215)
-        )
-
-        // C521 26.4008 521 23.6005 521 18
-        path.addCurve(
-            to: p(521, 18),
-            control1: p(521, 26.4008),
-            control2: p(521, 23.6005)
-        )
-
-        // V8
+        path.addCurve(to: p(515.54, 32.9101), control1: p(510.601, 34), control2: p(513.401, 34))
+        path.addCurve(to: p(519.91, 28.5399), control1: p(517.422, 31.9513), control2: p(518.951, 30.4215))
+        path.addCurve(to: p(521, 18), control1: p(521, 26.4008), control2: p(521, 23.6005))
         path.addLine(to: p(521, 8))
-
-        // C521 5.19974 521 3.79961 521.545 2.73005
-        path.addCurve(
-            to: p(521.545, 2.73005),
-            control1: p(521, 5.19974),
-            control2: p(521, 3.79961)
-        )
-
-        // C522.024 1.78924 522.789 1.02433 523.73 0.544967
-        path.addCurve(
-            to: p(523.73, 0.544967),
-            control1: p(522.024, 1.78924),
-            control2: p(522.789, 1.02433)
-        )
-
-        // C524.8 0 526.2 0 529 0
-        path.addCurve(
-            to: p(529, 0),
-            control1: p(524.8, 0),
-            control2: p(526.2, 0)
-        )
-
-        // H536 H0 H7 Z
-        path.addLine(to: p(536, 0))
-        path.addLine(to: p(0, 0))
+        path.addCurve(to: p(521.545, 2.73005), control1: p(521, 5.19974), control2: p(521, 3.79961))
+        path.addCurve(to: p(523.73, 0.544967), control1: p(522.024, 1.78924), control2: p(522.789, 1.02433))
+        path.addCurve(to: p(529, 0), control1: p(524.8, 0), control2: p(526.2, 0))
         path.addLine(to: p(7, 0))
         path.closeSubpath()
 

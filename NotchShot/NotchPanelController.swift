@@ -44,8 +44,6 @@ final class NotchPanelController: NSObject {
     private let captureButtonWidth: CGFloat = 71
 
     // Timer internals
-    private let timerOneDigitWidth: CGFloat = 8
-    private let timerTwoDigitsWidth: CGFloat = 16
     private let timerValueWidth: CGFloat = 13
     private let timerIconToValueGap: CGFloat = 6
     private let timerTrailingInsetWithValue: CGFloat = 8
@@ -60,17 +58,9 @@ final class NotchPanelController: NSObject {
     }
 
     private var timerCellWidth: CGFloat {
-        // Dynamic width matters on no-notch screens so the panel doesn't keep "air".
-        // Off -> only icon cell (28pt). 3/5 -> 1 digit. 10 -> 2 digits.
-        guard let label = model.delay.shortLabel else { return cellWidth }
-
-        let digitCount = label.count
-        let digitsWidth: CGFloat = (digitCount <= 1) ? timerOneDigitWidth : timerTwoDigitsWidth
-
-        // In the view the icon is 24pt inside a 28pt cell. The label itself isn't forced to 28pt,
-        // so to keep controller sizing close to the SwiftUI label we use iconSize = cellWidth - 4.
-        let iconSize = cellWidth - 4
-        return iconSize + timerIconToValueGap + digitsWidth + timerTrailingInsetWithValue
+        // динамика важна только на no-notch, чтобы не было “пустого зазора”
+        if model.delay.shortLabel == nil { return cellWidth }
+        return cellWidth + timerIconToValueGap + timerValueWidth + timerTrailingInsetWithValue
     }
 
     private var expandedWidth: CGFloat {
@@ -129,29 +119,25 @@ final class NotchPanelController: NSObject {
         interactionState.isEnabled = false
         interactionState.contentVisibility = 0.0
 
-        DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.22).delay(0.10)) {
-                self.interactionState.contentVisibility = 1.0
-            }
-        }
-
         panel.alphaValue = 1
         panel.orderFrontRegardless()
 
         if hasNotch {
             isExpanded = false
-            setPanelFrame(panel, width: collapsedWidth, on: screen, animated: false, duration: 0, timing: CAMediaTimingFunction(name: .linear))
+            panel.setFrame(frameForWidth(collapsedWidth, on: screen), display: true)
 
-            isExpanded = true
-            setPanelFrame(
-                panel,
-                width: clampedWidth(expandedWidth, on: screen),
-                on: screen,
-                animated: true,
-                duration: 0.20,
-                timing: CAMediaTimingFunction(name: .easeOut)
-            ) { [weak self] in
+            let target = frameForWidth(clampedWidth(expandedWidth, on: screen), on: screen)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.20
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+                withAnimation(.easeOut(duration: ctx.duration)) {
+                    self.interactionState.contentVisibility = 1.0
+                }
+                panel.animator().setFrame(target, display: true)
+            } completionHandler: { [weak self] in
                 self?.interactionState.isEnabled = true
+                self?.isExpanded = true
             }
         } else {
             isExpanded = true
@@ -159,12 +145,15 @@ final class NotchPanelController: NSObject {
             let w = clampedWidth(expandedWidth, on: screen)
             let hidden = frameNoNotchHiddenAbove(width: w, on: screen)
             let visible = frameForWidth(w, on: screen)
-
             panel.setFrame(hidden, display: true)
 
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.20
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+                withAnimation(.easeOut(duration: ctx.duration)) {
+                    self.interactionState.contentVisibility = 1.0
+                }
                 panel.animator().setFrame(visible, display: true)
             } completionHandler: { [weak self] in
                 self?.interactionState.isEnabled = true
@@ -177,12 +166,6 @@ final class NotchPanelController: NSObject {
 
         interactionState.isEnabled = false
 
-        DispatchQueue.main.async {
-            withAnimation(.easeIn(duration: 0.16)) {
-                self.interactionState.contentVisibility = 0.0
-            }
-        }
-
         guard let screen = (currentScreen ?? NSScreen.main ?? NSScreen.screens.first) else {
             panel.orderOut(nil)
             interactionState.isEnabled = true
@@ -191,16 +174,20 @@ final class NotchPanelController: NSObject {
 
         if hasNotch {
             isExpanded = false
-            setPanelFrame(
-                panel,
-                width: collapsedWidth,
-                on: screen,
-                animated: true,
-                duration: 0.18,
-                timing: CAMediaTimingFunction(name: .easeInEaseOut)
-            ) { [weak self, weak panel] in
+            let target = frameForWidth(collapsedWidth, on: screen)
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.18
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+
+                withAnimation(.easeIn(duration: ctx.duration)) {
+                    self.interactionState.contentVisibility = 0.0
+                }
+                panel.animator().setFrame(target, display: true)
+            } completionHandler: { [weak self, weak panel] in
                 panel?.orderOut(nil)
                 self?.interactionState.isEnabled = true
+                self?.isExpanded = false
             }
         } else {
             isExpanded = false
@@ -210,10 +197,15 @@ final class NotchPanelController: NSObject {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.18
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+
+                withAnimation(.easeIn(duration: ctx.duration)) {
+                    self.interactionState.contentVisibility = 0.0
+                }
                 panel.animator().setFrame(hidden, display: true)
             } completionHandler: { [weak self, weak panel] in
                 panel?.orderOut(nil)
                 self?.interactionState.isEnabled = true
+                self?.isExpanded = false
             }
         }
     }
@@ -261,7 +253,7 @@ final class NotchPanelController: NSObject {
         }
     }
 
-private func mainPanelView() -> NotchPanelView {
+    private func mainPanelView() -> NotchPanelView {
         NotchPanelView(
             cornerRadius: cornerRadius,
             hasNotch: hasNotch,
@@ -373,8 +365,8 @@ private func mainPanelView() -> NotchPanelView {
         sampler.show { [weak self] color in
             guard let self else { return }
             guard let color else { return } // cancelled
+
             self.trayModel.add(color: color)
-            // После пипетки логично показать трей с сохранёнными цветами.
             self.switchToTray()
         }
     }
@@ -410,31 +402,6 @@ private func mainPanelView() -> NotchPanelView {
         return min(max(w, collapsedWidth), maxW)
     }
 
-    private func setPanelFrame(
-        _ panel: NSPanel,
-        width: CGFloat,
-        on screen: NSScreen,
-        animated: Bool,
-        duration: TimeInterval,
-        timing: CAMediaTimingFunction,
-        completion: (() -> Void)? = nil
-    ) {
-        let target = frameForWidth(width, on: screen)
-
-        guard animated else {
-            panel.setFrame(target, display: true)
-            completion?()
-            return
-        }
-
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = duration
-            ctx.timingFunction = timing
-            panel.animator().setFrame(target, display: true)
-        } completionHandler: {
-            completion?()
-        }
-    }
 
     private func frameForWidth(_ width: CGFloat, on screen: NSScreen?) -> NSRect {
         guard let screen else { return NSRect(x: 0, y: 0, width: width, height: height) }
@@ -871,27 +838,6 @@ private struct ScreenshotThumbnailView: View {
     }
 }
 
-// MARK: - Tray (colors)
-
-final class NotchTrayModel: ObservableObject {
-    @Published private(set) var colors: [TrayColor] = []
-
-    func add(color: NSColor) {
-        let c = color.usingColorSpace(.sRGB) ?? color
-        let hex = c.hexString
-        if colors.first?.hex == hex { return }
-        colors.removeAll { $0.hex == hex }
-        colors.insert(TrayColor(color: c, hex: hex), at: 0)
-        if colors.count > 8 { colors = Array(colors.prefix(8)) }
-    }
-}
-
-struct TrayColor: Identifiable, Equatable {
-    let id = UUID()
-    let color: NSColor
-    let hex: String
-}
-
 // MARK: - Notch helpers
 
 private extension NSScreen {
@@ -910,5 +856,15 @@ private extension NSScreen {
             return nil
         }
         return CGDirectDisplayID(num.uint32Value)
+    }
+}
+
+private extension NSColor {
+    var hexString: String {
+        let c = usingColorSpace(.sRGB) ?? self
+        let r = Int(round(c.redComponent * 255))
+        let g = Int(round(c.greenComponent * 255))
+        let b = Int(round(c.blueComponent * 255))
+        return String(format: "#%02X%02X%02X", r, g, b)
     }
 }

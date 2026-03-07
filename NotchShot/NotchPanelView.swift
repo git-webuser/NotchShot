@@ -100,8 +100,8 @@ struct NotchPanelView: View {
         .frame(height: height)
         .allowsHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
-        .onChange(of: model.delay) { _ in onModeDelayChanged() }
-        .onChange(of: model.mode) { _ in onModeDelayChanged() }
+        .onChange(of: model.delay) { _, _ in onModeDelayChanged() }
+        .onChange(of: model.mode)  { _, _ in onModeDelayChanged() }
     }
 
     // MARK: - Layouts
@@ -280,6 +280,12 @@ struct NotchPanelView: View {
         Menu {
             Button("Settings") {
                 NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+            }
+
+            Divider()
+
+            Button("Quit NotchShot") {
+                NSApp.terminate(nil)
             }
         } label: {
             Image(systemName: "ellipsis.circle")

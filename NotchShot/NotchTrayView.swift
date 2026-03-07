@@ -1,28 +1,7 @@
 import SwiftUI
 import AppKit
-
-/// В каком формате копировать цвет при тапе по свотчу.
-enum ColorSchemeType: CaseIterable, Hashable {
-    case hex
-    case rgb
-
-    var title: String {
-        switch self {
-        case .hex: return "HEX"
-        case .rgb: return "RGB"
-        }
-    }
-
-    func convert(_ color: NSColor) -> String {
-        let c = color.usingColorSpace(.sRGB) ?? color
-        switch self {
-        case .hex:
-            return c.hexString
-        case .rgb:
-            return c.rgbString
-        }
-    }
-}
+import Foundation
+import Combine
 
 struct NotchTrayView: View {
     let hasNotch: Bool
@@ -44,8 +23,6 @@ struct NotchTrayView: View {
         }
         .frame(height: 34)
     }
-
-    // MARK: - Layouts
 
     private var notchLayout: some View {
         GeometryReader { geo in
@@ -84,8 +61,6 @@ struct NotchTrayView: View {
         }
     }
 
-    // MARK: - Content
-
     private var leftContent: some View {
         HStack(spacing: 12) {
             Button(action: onBack) {
@@ -105,11 +80,10 @@ struct NotchTrayView: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10))
                 }
-                .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 8)
                 .frame(height: 24)
                 .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 6)
                         .fill(Color.white.opacity(0.12))
                 )
             }
@@ -121,11 +95,11 @@ struct NotchTrayView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(trayModel.colors) { item in
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: 6)
                         .fill(Color(nsColor: item.color))
                         .frame(width: 26, height: 26)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            RoundedRectangle(cornerRadius: 6)
                                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
                         )
                         .onTapGesture {
@@ -142,22 +116,64 @@ struct NotchTrayView: View {
     }
 }
 
-// MARK: - NSColor helpers
+enum ColorSchemeType: CaseIterable, Equatable {
+    case hex
+    case rgb
 
-extension NSColor {
-    var hexString: String {
-        let c = usingColorSpace(.sRGB) ?? self
-        let r = Int(round(c.redComponent * 255))
-        let g = Int(round(c.greenComponent * 255))
-        let b = Int(round(c.blueComponent * 255))
-        return String(format: "#%02X%02X%02X", r, g, b)
+    var title: String {
+        switch self {
+        case .hex: return "HEX"
+        case .rgb: return "RGB"
+        }
     }
 
+    func convert(_ color: NSColor) -> String {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        switch self {
+        case .hex:
+            return c.hexString
+        case .rgb:
+            return c.rgbString
+        }
+    }
+}
+
+private extension NSColor {
     var rgbString: String {
         let c = usingColorSpace(.sRGB) ?? self
         let r = Int(round(c.redComponent * 255))
         let g = Int(round(c.greenComponent * 255))
         let b = Int(round(c.blueComponent * 255))
         return "rgb(\(r), \(g), \(b))"
+    }
+}
+
+final class NotchTrayModel: ObservableObject {
+    @Published private(set) var colors: [TrayColor] = []
+
+    func add(color: NSColor) {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        let hex = c.hexString
+
+        colors.removeAll { $0.hex == hex }
+        colors.insert(TrayColor(color: c, hex: hex), at: 0)
+
+        if colors.count > 8 { colors = Array(colors.prefix(8)) }
+    }
+}
+
+struct TrayColor: Identifiable, Equatable {
+    let id = UUID()
+    let color: NSColor
+    let hex: String
+}
+
+private extension NSColor {
+    var hexString: String {
+        let c = usingColorSpace(.sRGB) ?? self
+        let r = Int(round(c.redComponent * 255))
+        let g = Int(round(c.greenComponent * 255))
+        let b = Int(round(c.blueComponent * 255))
+        return String(format: "#%02X%02X%02X", r, g, b)
     }
 }
