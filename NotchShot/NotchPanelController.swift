@@ -3,12 +3,63 @@ import SwiftUI
 import Combine
 import CoreGraphics
 import QuartzCore
+import ImageIO
 
 // MARK: - Interaction state
 
 final class NotchPanelInteractionState: ObservableObject {
     @Published var isEnabled: Bool = true
     @Published var contentVisibility: Double = 1.0
+}
+
+// MARK: - Root state
+
+private enum NotchPanelRoute {
+    case main
+    case tray
+}
+
+private final class NotchPanelRootState: ObservableObject {
+    @Published var route: NotchPanelRoute = .main
+    @Published var metrics: NotchMetrics = .fallback()
+}
+
+private struct NotchPanelRootView: View {
+    @ObservedObject var rootState: NotchPanelRootState
+    @ObservedObject var interaction: NotchPanelInteractionState
+    @ObservedObject var model: NotchPanelModel
+    @ObservedObject var trayModel: NotchTrayModel
+
+    let onClose: () -> Void
+    let onCapture: (CaptureMode, CaptureDelay) -> Void
+    let onToggleTray: () -> Void
+    let onPickColor: () -> Void
+    let onModeDelayChanged: () -> Void
+    let onBack: () -> Void
+
+    var body: some View {
+        Group {
+            switch rootState.route {
+            case .main:
+                NotchPanelView(
+                    metrics: rootState.metrics,
+                    interaction: interaction,
+                    model: model,
+                    onClose: onClose,
+                    onCapture: onCapture,
+                    onToggleTray: onToggleTray,
+                    onPickColor: onPickColor,
+                    onModeDelayChanged: onModeDelayChanged
+                )
+            case .tray:
+                NotchTrayView(
+                    metrics: rootState.metrics,
+                    trayModel: trayModel,
+                    onBack: onBack
+                )
+            }
+        }
+    }
 }
 
 // MARK: - Panel controller
@@ -18,82 +69,106 @@ final class NotchPanelController: NSObject {
     private var currentScreen: NSScreen?
 
     private let interactionState = NotchPanelInteractionState()
+    private let rootState = NotchPanelRootState()
     private let model = NotchPanelModel()
-    
-    private enum NotchPanelState {
-            case main
-            case tray
-        }
-
-    private var state: NotchPanelState = .main
     private let trayModel = NotchTrayModel()
-
     private let screenshot = ScreenshotService()
 
-    // Base sizes
-    private let height: CGFloat = 34
-    private let cornerRadius: CGFloat = 10
-    private let outerSideInset: CGFloat = 5
-    private let earInsetNotch: CGFloat = 15
+    private var menuTrackingDepth: Int = 0
+    private var trayTransitionInFlight: Bool = false
+    private var colorSamplerInFlight: Bool = false
 
-    // Layout constraints
-    private let cellWidth: CGFloat = 28
-    private let gap: CGFloat = 8
-    private let leftMinToNotch: CGFloat = 36
-    private let rightMinFromNotch: CGFloat = 12
-    private let captureButtonWidth: CGFloat = 71
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(menuDidBeginTracking),
+            name: NSMenu.didBeginTrackingNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(menuDidEndTracking),
+            name: NSMenu.didEndTrackingNotification,
+            object: nil
+        )
+    }
 
-    // Timer internals
-    private let timerValueWidth: CGFloat = 13
-    private let timerIconToValueGap: CGFloat = 6
-    private let timerTrailingInsetWithValue: CGFloat = 8
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
-    // Dynamic screen metrics
-    private var hasNotch: Bool = true
-    private var notchGap: CGFloat = 186 // fallback
-    private var collapsedWidth: CGFloat { notchGap }
+    @objc
+    private func menuDidBeginTracking() {
+        menuTrackingDepth += 1
+    }
 
-    private var edgeSafe: CGFloat {
-        outerSideInset + (hasNotch ? earInsetNotch : 0)
+    @objc
+    private func menuDidEndTracking() {
+        menuTrackingDepth = max(0, menuTrackingDepth - 1)
+    }
+
+    var suppressesGlobalAutoHide: Bool {
+        menuTrackingDepth > 0 || trayTransitionInFlight || colorSamplerInFlight
+    }
+
+    private var metrics = NotchMetrics.fallback() {
+        didSet {
+            rootState.metrics = metrics
+        }
+    }
+
+    private var route: NotchPanelRoute {
+        get { rootState.route }
+        set { rootState.route = newValue }
+    }
+
+    private var collapsedWidth: CGFloat { metrics.notchGap }
+
+    private var timerDigitsWidth: CGFloat {
+        switch model.delay.shortLabel?.count ?? 0 {
+        case 0: return 0
+        case 1: return 8
+        default: return metrics.timerValueWidth
+        }
     }
 
     private var timerCellWidth: CGFloat {
-        // динамика важна только на no-notch, чтобы не было “пустого зазора”
-        if model.delay.shortLabel == nil { return cellWidth }
-        return cellWidth + timerIconToValueGap + timerValueWidth + timerTrailingInsetWithValue
+        guard model.delay.shortLabel != nil else {
+            return metrics.cellWidth
+        }
+        return metrics.iconSize + metrics.timerIconToValueGap + timerDigitsWidth + metrics.timerTrailingInsetWithValue
     }
 
     private var expandedWidth: CGFloat {
-        if hasNotch {
-            // Notch: “весы” — берём максимальную геометрию, чтобы не плясало
-            let timerCell = cellWidth + timerIconToValueGap + timerValueWidth + timerTrailingInsetWithValue
+        if metrics.hasNotch {
+            let timerCell = metrics.iconSize + metrics.timerIconToValueGap + metrics.timerValueWidth + metrics.timerTrailingInsetWithValue
 
-            let leftMin = edgeSafe
-                + cellWidth + gap             // close
-                + cellWidth + gap             // mode
+            let leftMin = metrics.edgeSafe
+                + metrics.cellWidth + metrics.gap
+                + metrics.cellWidth + metrics.gap
                 + timerCell
-                + leftMinToNotch
+                + metrics.leftMinToNotch
 
-            let rightMin = rightMinFromNotch
-                + cellWidth + gap             // tray
-                + cellWidth + gap             // more
-                + captureButtonWidth
-                + edgeSafe
+            let rightMin = metrics.rightMinFromNotch
+                + metrics.cellWidth + metrics.gap
+                + metrics.cellWidth + metrics.gap
+                + metrics.captureButtonWidth
+                + metrics.edgeSafe
 
             let shoulder = max(leftMin, rightMin)
             return collapsedWidth + 2 * shoulder
         }
 
-        // No-notch: ширина зависит от текущей задержки (timerCellWidth)
-        let left = edgeSafe
-            + cellWidth + gap                 // close
-            + cellWidth + gap                 // mode
+        let left = metrics.edgeSafe
+            + metrics.cellWidth + metrics.gap
+            + metrics.cellWidth + metrics.gap
             + timerCellWidth
 
-        let right = edgeSafe
-            + cellWidth + gap                 // tray
-            + cellWidth + gap                 // more
-            + captureButtonWidth
+        let right = metrics.edgeSafe
+            + metrics.cellWidth + metrics.gap
+            + metrics.cellWidth + metrics.gap
+            + metrics.captureButtonWidth
 
         return left + right
     }
@@ -114,19 +189,16 @@ final class NotchPanelController: NSObject {
         if panel == nil { create() }
         guard let panel else { return }
 
-        refreshRootView()
-
         interactionState.isEnabled = false
         interactionState.contentVisibility = 0.0
-
         panel.alphaValue = 1
         panel.orderFrontRegardless()
 
-        if hasNotch {
+        if metrics.hasNotch {
             isExpanded = false
             panel.setFrame(frameForWidth(collapsedWidth, on: screen), display: true)
 
-            let target = frameForWidth(clampedWidth(expandedWidth, on: screen), on: screen)
+            let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen), on: screen)
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.20
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -142,7 +214,7 @@ final class NotchPanelController: NSObject {
         } else {
             isExpanded = true
 
-            let w = clampedWidth(expandedWidth, on: screen)
+            let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
             let hidden = frameNoNotchHiddenAbove(width: w, on: screen)
             let visible = frameForWidth(w, on: screen)
             panel.setFrame(hidden, display: true)
@@ -172,7 +244,7 @@ final class NotchPanelController: NSObject {
             return
         }
 
-        if hasNotch {
+        if metrics.hasNotch {
             isExpanded = false
             let target = frameForWidth(collapsedWidth, on: screen)
 
@@ -191,7 +263,7 @@ final class NotchPanelController: NSObject {
             }
         } else {
             isExpanded = false
-            let w = clampedWidth(expandedWidth, on: screen)
+            let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
             let hidden = frameNoNotchHiddenAbove(width: w, on: screen)
 
             NSAnimationContext.runAnimationGroup { ctx in
@@ -219,7 +291,7 @@ final class NotchPanelController: NSObject {
 
     private func create() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: height),
+            contentRect: NSRect(x: 0, y: 0, width: collapsedWidth, height: metrics.panelHeight),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -239,30 +311,12 @@ final class NotchPanelController: NSObject {
         self.panel = panel
     }
 
-    private func refreshRootView() {
-        guard let hosting = panel?.contentView as? NSHostingView<AnyView> else { return }
-        hosting.rootView = makeRootView()
-    }
-
-    private func makeRootView() -> AnyView {
-        switch state {
-        case .main:
-            return AnyView(mainPanelView())
-        case .tray:
-            return AnyView(trayPanelView())
-        }
-    }
-
-    private func mainPanelView() -> NotchPanelView {
-        NotchPanelView(
-            cornerRadius: cornerRadius,
-            hasNotch: hasNotch,
-            notchGap: notchGap,
-            edgeSafe: edgeSafe,
-            leftMinToNotch: leftMinToNotch,
-            rightMinFromNotch: rightMinFromNotch,
+    private func makeRootView() -> NotchPanelRootView {
+        NotchPanelRootView(
+            rootState: rootState,
             interaction: interactionState,
             model: model,
+            trayModel: trayModel,
             onClose: { [weak self] in self?.hideAnimated() },
             onCapture: { [weak self] mode, delay in
                 guard let self else { return }
@@ -270,110 +324,109 @@ final class NotchPanelController: NSObject {
                 self.hideAnimated()
                 self.screenshot.capture(mode: mode, delaySeconds: delay.seconds, preferredScreen: screen)
             },
-            onToggleTray: { [weak self] in
-                self?.switchToTray()
-            },
-            onPickColor: { [weak self] in
-                self?.pickColor()
-            },
-            onModeDelayChanged: { [weak self] in
-                self?.updateWidthForNoNotchIfNeeded()
-            }
+            onToggleTray: { [weak self] in self?.switchToTray() },
+            onPickColor: { [weak self] in self?.pickColor() },
+            onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
+            onBack: { [weak self] in self?.switchToMain() }
         )
     }
-    
-    private func trayPanelView() -> some View {
-        NotchTrayView(
-            hasNotch: hasNotch,
-            notchGap: notchGap,
-            edgeSafe: edgeSafe,
-            trayModel: trayModel,
-            onBack: { [weak self] in
-                self?.switchToMain()
-            }
-        )
+
+    private var currentWidthForCurrentRoute: CGFloat {
+        switch route {
+        case .main:
+            return expandedWidth
+        case .tray:
+            return trayWidth
+        }
     }
-    
+
     private func switchToTray() {
-        state = .tray
-        refreshRootView()
-        animateWidthForCurrentState()
+        guard route != .tray else { return }
+        transitionBetweenStates(.tray)
     }
 
     private func switchToMain() {
-        state = .main
-        refreshRootView()
-        animateWidthForCurrentState()
+        guard route != .main else { return }
+        transitionBetweenStates(.main)
     }
-    
-    private func animateWidthForCurrentState() {
+
+    private func transitionBetweenStates(_ targetRoute: NotchPanelRoute) {
         guard let panel else { return }
         guard let screen = currentScreen ?? NSScreen.main else { return }
 
-        let targetWidth: CGFloat
-
-        switch state {
-        case .main:
-            targetWidth = clampedWidth(expandedWidth, on: screen)
-        case .tray:
-            targetWidth = clampedWidth(trayWidth, on: screen)
-        }
+        trayTransitionInFlight = true
+        interactionState.isEnabled = false
 
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.18
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().setFrame(frameForWidth(targetWidth, on: screen), display: true)
+            ctx.duration = 0.10
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            withAnimation(.easeOut(duration: ctx.duration)) {
+                self.interactionState.contentVisibility = 0.0
+            }
+        } completionHandler: { [weak self, weak panel] in
+            guard let self, let panel else { return }
+
+            self.route = targetRoute
+
+            let targetWidth = self.clampedWidth(self.currentWidthForCurrentRoute, on: screen)
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.16
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                panel.animator().setFrame(self.frameForWidth(targetWidth, on: screen), display: true)
+            } completionHandler: { [weak self] in
+                guard let self else { return }
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.10
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    withAnimation(.easeOut(duration: ctx.duration)) {
+                        self.interactionState.contentVisibility = 1.0
+                    }
+                } completionHandler: { [weak self] in
+                    self?.trayTransitionInFlight = false
+                    self?.interactionState.isEnabled = true
+                }
+            }
         }
     }
-    
-    private var trayWidth: CGFloat {
-        let baseSide = edgeSafe
 
-        let swatchWidth: CGFloat = 30
+    private var trayWidth: CGFloat {
+        let baseSide = metrics.edgeSafe
+        let swatchWidth: CGFloat = metrics.buttonHeight + 2
         let spacing: CGFloat = 6
 
         let count = max(1, trayModel.colors.count)
-        let contentWidth = CGFloat(count) * swatchWidth
-            + CGFloat(max(0, count - 1)) * spacing
+        let contentWidth = CGFloat(count) * swatchWidth + CGFloat(max(0, count - 1)) * spacing
 
         let schemeControlWidth: CGFloat = 80
-        let backButtonWidth: CGFloat = 28
+        let backButtonWidth: CGFloat = metrics.cellWidth
 
-        if hasNotch {
-            let shoulder = baseSide
-                + backButtonWidth
-                + 12
-                + schemeControlWidth
-                + 12
-                + min(contentWidth, 240)
-
-            return notchGap + 2 * shoulder
+        if metrics.hasNotch {
+            let shoulder = baseSide + backButtonWidth + metrics.gap + schemeControlWidth + metrics.gap + min(contentWidth, 240) + metrics.leftMinToNotch
+            return metrics.notchGap + 2 * shoulder
         }
 
-        return baseSide
-            + backButtonWidth
-            + 12
-            + schemeControlWidth
-            + 12
-            + min(contentWidth, 300)
-            + baseSide
+        return baseSide + backButtonWidth + metrics.gap + schemeControlWidth + metrics.gap + min(contentWidth, 300) + baseSide
     }
 
     private func pickColor() {
-        // Системное "eyedropper" поведение
+        colorSamplerInFlight = true
+
         let sampler = NSColorSampler()
         sampler.show { [weak self] color in
             guard let self else { return }
-            guard let color else { return } // cancelled
+            self.colorSamplerInFlight = false
 
+            guard let color else { return }
             self.trayModel.add(color: color)
             self.switchToTray()
         }
     }
 
     private func updateWidthForNoNotchIfNeeded() {
-        guard !hasNotch else { return }
+        guard !metrics.hasNotch else { return }
         guard let panel else { return }
+        guard route == .main else { return }
         guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
         let w = clampedWidth(expandedWidth, on: screen)
@@ -387,14 +440,7 @@ final class NotchPanelController: NSObject {
     }
 
     private func updateScreenMetrics(for screen: NSScreen) {
-        let gap = screen.notchGapWidth
-        if gap > 0 {
-            hasNotch = true
-            notchGap = gap
-        } else {
-            hasNotch = false
-            notchGap = 186
-        }
+        metrics = NotchMetrics.from(screen: screen)
     }
 
     private func clampedWidth(_ w: CGFloat, on screen: NSScreen) -> CGFloat {
@@ -402,41 +448,43 @@ final class NotchPanelController: NSObject {
         return min(max(w, collapsedWidth), maxW)
     }
 
-
     private func frameForWidth(_ width: CGFloat, on screen: NSScreen?) -> NSRect {
-        guard let screen else { return NSRect(x: 0, y: 0, width: width, height: height) }
+        guard let screen else { return NSRect(x: 0, y: 0, width: width, height: metrics.panelHeight) }
 
         let sf = screen.frame
-        let margin: CGFloat = 8
+        let margin = snapToPixel(8, scale: metrics.scale)
 
         var x = sf.midX - width / 2
         x = max(sf.minX + margin, min(x, sf.maxX - margin - width))
+        x = snapToPixel(x, scale: metrics.scale)
 
-        let topInsetNoNotch: CGFloat = 5
+        let topInsetNoNotch = snapToPixel(metrics.outerSideInset, scale: metrics.scale)
 
         let y: CGFloat
-        if hasNotch {
-            y = sf.maxY - height
+        if metrics.hasNotch {
+            y = snapToPixel(sf.maxY - metrics.panelHeight, scale: metrics.scale)
         } else {
-            y = screen.visibleFrame.maxY - height - topInsetNoNotch
+            y = snapToPixel(screen.visibleFrame.maxY - metrics.panelHeight - topInsetNoNotch, scale: metrics.scale)
         }
 
-        return NSRect(x: x, y: y, width: width, height: height)
+        return NSRect(x: x, y: y, width: snapToPixel(width, scale: metrics.scale), height: metrics.panelHeight)
     }
 
     private func frameNoNotchHiddenAbove(width: CGFloat, on screen: NSScreen?) -> NSRect {
-        guard let screen else { return NSRect(x: 0, y: 0, width: width, height: height) }
+        guard let screen else { return NSRect(x: 0, y: 0, width: width, height: metrics.panelHeight) }
 
         let sf = screen.frame
-        let margin: CGFloat = 8
+        let margin = snapToPixel(8, scale: metrics.scale)
 
         var x = sf.midX - width / 2
         x = max(sf.minX + margin, min(x, sf.maxX - margin - width))
+        x = snapToPixel(x, scale: metrics.scale)
 
-        let y = sf.maxY + 1
-        return NSRect(x: x, y: y, width: width, height: height)
+        let y = snapToPixel(sf.maxY + metrics.pixel, scale: metrics.scale)
+        return NSRect(x: x, y: y, width: snapToPixel(width, scale: metrics.scale), height: metrics.panelHeight)
     }
 }
+
 
 // MARK: - Screenshot service
 
@@ -518,20 +566,22 @@ final class ScreenshotService {
     }
 
     private func runScreencapture(arguments: [String]) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = arguments
+        autoreleasepool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            process.arguments = arguments
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
 
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
-            return false
+            do {
+                try process.run()
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            } catch {
+                return false
+            }
         }
     }
 
@@ -542,17 +592,45 @@ final class ScreenshotService {
     }
 
     private func makeFilename() -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
-        return "Screenshot \(formatter.string(from: Date())).png" // ближе к системному неймингу
+        let c = Calendar(identifier: .gregorian)
+        let d = c.dateComponents(in: .current, from: Date())
+
+        return String(
+            format: "Screenshot %04d-%02d-%02d_%02d-%02d-%02d-%03d.png",
+            d.year ?? 0,
+            d.month ?? 0,
+            d.day ?? 0,
+            d.hour ?? 0,
+            d.minute ?? 0,
+            d.second ?? 0,
+            (d.nanosecond ?? 0) / 1_000_000
+        )
     }
 
     private func copyToPasteboard(imageAt url: URL) {
-        guard let img = NSImage(contentsOf: url) else { return }
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.writeObjects([img, url as NSURL])
+        Task.detached(priority: .userInitiated) {
+            let image: NSImage? = autoreleasepool {
+                guard
+                    let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+                    let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil)
+                else {
+                    return nil
+                }
+
+                return NSImage(cgImage: cgImage, size: .zero)
+            }
+
+            await MainActor.run {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+
+                if let image {
+                    pb.writeObjects([image, url as NSURL])
+                } else {
+                    pb.writeObjects([url as NSURL])
+                }
+            }
+        }
     }
 }
 
@@ -582,7 +660,11 @@ private enum FrontmostWindowResolver {
                 let w: Double = (wAny as? Double) ?? Double((wAny as? CGFloat) ?? 0)
                 let h: Double = (hAny as? Double) ?? Double((hAny as? CGFloat) ?? 0)
 
-                if (w > 0 && h > 0) && (w < 60 || h < 60) {
+                if w <= 0 || h <= 0 {
+                    continue
+                }
+
+                if (w < 60 && h < 60) || (w * h < 3600) {
                     continue
                 }
             }
@@ -730,17 +812,75 @@ private final class ScreenshotThumbnailHUD {
     }
 }
 
+@MainActor
+private final class ScreenshotThumbnailLoader: ObservableObject {
+    @Published var image: NSImage?
+
+    private var loadedURL: URL?
+    private var loadTask: Task<Void, Never>?
+
+    deinit {
+        loadTask?.cancel()
+    }
+
+    func load(imageURL: URL, maxPixelSize: CGFloat = 440) {
+        if loadedURL != imageURL {
+            image = nil
+            loadedURL = imageURL
+        }
+
+        loadTask?.cancel()
+        let url = imageURL
+
+        loadTask = Task { @MainActor in
+            let nsImage: NSImage? = await Task.detached(priority: .userInitiated) {
+                autoreleasepool {
+                    guard
+                        let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+                        let cgImage = CGImageSourceCreateThumbnailAtIndex(
+                            src,
+                            0,
+                            [
+                                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                kCGImageSourceCreateThumbnailWithTransform: true,
+                                kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelSize)
+                            ] as CFDictionary
+                        )
+                    else {
+                        return nil
+                    }
+
+                    return NSImage(cgImage: cgImage, size: .zero)
+                }
+            }.value
+
+            guard !Task.isCancelled else { return }
+            guard self.loadedURL == url else { return }
+            image = nsImage
+        }
+    }
+}
+
 private struct ScreenshotThumbnailView: View {
     let imageURL: URL
     let onDismiss: () -> Void
     let onHoverChanged: (Bool) -> Void
 
+    @StateObject private var loader = ScreenshotThumbnailLoader()
     @State private var dragOffset: CGSize = .zero
     @GestureState private var isDragging: Bool = false
 
-    var body: some View {
-        let image = NSImage(contentsOf: imageURL)
+    init(
+        imageURL: URL,
+        onDismiss: @escaping () -> Void,
+        onHoverChanged: @escaping (Bool) -> Void
+    ) {
+        self.imageURL = imageURL
+        self.onDismiss = onDismiss
+        self.onHoverChanged = onHoverChanged
+    }
 
+    var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.black.opacity(0.72))
@@ -750,7 +890,7 @@ private struct ScreenshotThumbnailView: View {
                 )
                 .shadow(radius: 18, y: 10)
 
-            if let image {
+            if let image = loader.image {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
@@ -764,8 +904,8 @@ private struct ScreenshotThumbnailView: View {
                     )
             } else {
                 VStack(spacing: 6) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 22, weight: .semibold))
+                    ProgressView()
+                        .controlSize(.small)
                     Text("Screenshot")
                         .font(.system(size: 12, weight: .medium))
                 }
@@ -786,8 +926,29 @@ private struct ScreenshotThumbnailView: View {
         }
         .contextMenu {
             Button("Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([imageURL as NSURL])
+                Task.detached(priority: .userInitiated) {
+                    let image: NSImage? = autoreleasepool {
+                        guard
+                            let src = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
+                            let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil)
+                        else {
+                            return nil
+                        }
+
+                        return NSImage(cgImage: cgImage, size: .zero)
+                    }
+
+                    await MainActor.run {
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+
+                        if let image {
+                            pb.writeObjects([image, imageURL as NSURL])
+                        } else {
+                            pb.writeObjects([imageURL as NSURL])
+                        }
+                    }
+                }
             }
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([imageURL])
@@ -800,6 +961,9 @@ private struct ScreenshotThumbnailView: View {
         }
         .onHover { hovering in
             onHoverChanged(hovering)
+        }
+        .task(id: imageURL) {
+            loader.load(imageURL: imageURL)
         }
     }
 
@@ -838,33 +1002,20 @@ private struct ScreenshotThumbnailView: View {
     }
 }
 
+// MARK: - Pixel snapping
+
+private func snapToPixel(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+    let s = max(scale, 1)
+    return (value * s).rounded() / s
+}
+
 // MARK: - Notch helpers
 
 private extension NSScreen {
-    var notchGapWidth: CGFloat {
-        guard #available(macOS 12.0, *),
-              let left = auxiliaryTopLeftArea,
-              let right = auxiliaryTopRightArea else {
-            return 0
-        }
-        let w = frame.width - left.width - right.width
-        return max(0, w)
-    }
-
     var displayID: CGDirectDisplayID? {
         guard let num = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return nil
         }
         return CGDirectDisplayID(num.uint32Value)
-    }
-}
-
-private extension NSColor {
-    var hexString: String {
-        let c = usingColorSpace(.sRGB) ?? self
-        let r = Int(round(c.redComponent * 255))
-        let g = Int(round(c.greenComponent * 255))
-        let b = Int(round(c.blueComponent * 255))
-        return String(format: "#%02X%02X%02X", r, g, b)
     }
 }

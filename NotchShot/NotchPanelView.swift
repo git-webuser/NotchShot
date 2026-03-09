@@ -2,8 +2,6 @@ import SwiftUI
 import AppKit
 import Combine
 
-// MARK: - Shared types
-
 enum CaptureMode: CaseIterable, Equatable {
     case selection
     case window
@@ -60,19 +58,13 @@ enum CaptureDelay: CaseIterable, Equatable {
     }
 }
 
-/// Состояние панели, чтобы контроллер мог динамически менять ширину (особенно на экранах без челки).
 final class NotchPanelModel: ObservableObject {
     @Published var mode: CaptureMode = .selection
     @Published var delay: CaptureDelay = .off
 }
 
 struct NotchPanelView: View {
-    let cornerRadius: CGFloat
-    let hasNotch: Bool
-    let notchGap: CGFloat
-    let edgeSafe: CGFloat
-    let leftMinToNotch: CGFloat
-    let rightMinFromNotch: CGFloat
+    let metrics: NotchMetrics
 
     @ObservedObject var interaction: NotchPanelInteractionState
     @ObservedObject var model: NotchPanelModel
@@ -83,70 +75,69 @@ struct NotchPanelView: View {
     let onPickColor: () -> Void
     let onModeDelayChanged: () -> Void
 
-    // Figma sizes
-    private let height: CGFloat = 34
-    private let cellWidth: CGFloat = 28
-    private let iconSize: CGFloat = 24
-    private let gap: CGFloat = 8
-    private let captureButtonSize = CGSize(width: 71, height: 24)
-
-    private let timerIconToValueGap: CGFloat = 6
-    private let timerTrailingInsetWithValue: CGFloat = 8
-
     var body: some View {
         Group {
-            if hasNotch { notchLayout } else { noNotchLayout }
+            if metrics.hasNotch {
+                notchLayout
+            } else {
+                noNotchLayout
+            }
         }
-        .frame(height: height)
+        .frame(height: metrics.panelHeight)
         .allowsHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
         .onChange(of: model.delay) { _, _ in onModeDelayChanged() }
-        .onChange(of: model.mode)  { _, _ in onModeDelayChanged() }
+        .onChange(of: model.mode) { _, _ in onModeDelayChanged() }
     }
-
-    // MARK: - Layouts
 
     private var notchLayout: some View {
         GeometryReader { geo in
-            let w = geo.size.width
-            let shoulders = max(0, (w - notchGap) / 2)
+            let totalWidth = geo.size.width
+            let shoulders = max(0, (totalWidth - metrics.notchGap) / 2)
 
             ZStack {
                 NotchShape()
-                    .fill(.black)
-                    .scaleEffect(panelScale)
-                    .animation(panelSpring, value: interaction.contentVisibility)
+                    .fill(Color.black)
+                    .compositingGroup()
+                    .offset(y: -metrics.pixel)
 
                 HStack(spacing: 0) {
-                    // LEFT
-                    HStack(spacing: gap) { closeCell; modeMenuCell; timerMenuCell }
-                        .padding(.leading, edgeSafe)
-                        .padding(.trailing, leftMinToNotch)
-                        .frame(width: shoulders, alignment: .leading)
+                    HStack(spacing: metrics.gap) {
+                        closeCell
+                        modeMenuCell
+                        timerMenuCell
+                    }
+                    .padding(.leading, metrics.edgeSafe)
+                    .padding(.trailing, metrics.leftMinToNotch)
+                    .frame(width: shoulders, alignment: .leading)
 
-                    Color.clear.frame(width: notchGap)
+                    Color.clear.frame(width: metrics.notchGap)
 
-                    // RIGHT
-                    HStack(spacing: gap) { trayButtonCell; moreCell; captureButton }
-                        .padding(.leading, rightMinFromNotch)
-                        .padding(.trailing, edgeSafe)
-                        .frame(width: shoulders, alignment: .trailing)
+                    HStack(spacing: metrics.gap) {
+                        trayButtonCell
+                        moreCell
+                        captureButton
+                    }
+                    .padding(.leading, metrics.rightMinFromNotch)
+                    .padding(.trailing, metrics.edgeSafe)
+                    .frame(width: shoulders, alignment: .trailing)
                 }
+                .frame(height: metrics.panelHeight)
                 .opacity(contentOpacity)
                 .animation(contentFade, value: interaction.contentVisibility)
-                .frame(height: height)
             }
         }
     }
 
     private var noNotchLayout: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(.black)
+            RoundedRectangle(cornerRadius: metrics.panelRadius, style: .continuous)
+                .fill(Color.black)
+                .compositingGroup()
                 .scaleEffect(panelScale)
                 .animation(panelSpring, value: interaction.contentVisibility)
 
-            HStack(spacing: gap) {
+            HStack(spacing: metrics.gap) {
                 closeCell
                 modeMenuCell
                 timerMenuCell
@@ -154,30 +145,27 @@ struct NotchPanelView: View {
                 moreCell
                 captureButton
             }
-            .padding(.horizontal, edgeSafe)
+            .padding(.horizontal, metrics.outerSideInset)
+            .frame(height: metrics.panelHeight)
             .opacity(contentOpacity)
-                .animation(contentFade, value: interaction.contentVisibility)
-                .frame(height: height)
+            .animation(contentFade, value: interaction.contentVisibility)
         }
         .animation(nil, value: model.delay)
         .animation(nil, value: model.mode)
     }
-
-    // MARK: - Cells
 
     private var closeCell: some View {
         Button(action: onClose) {
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
-                .frame(width: iconSize, height: iconSize)
+                .frame(width: metrics.iconSize, height: metrics.iconSize)
         }
         .buttonStyle(.plain)
-        .frame(width: cellWidth, height: iconSize)
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
         .contentShape(Rectangle())
     }
 
-    /// Требование: именно Menu (не Submenu), пункты с иконками, плюс Separator и Pick Color.
     private var modeMenuCell: some View {
         Menu {
             Button {
@@ -209,70 +197,58 @@ struct NotchPanelView: View {
             Image(systemName: model.mode.icon)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
-                .frame(width: iconSize, height: iconSize)
+                .frame(width: metrics.iconSize, height: metrics.iconSize)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: cellWidth, height: iconSize)
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
 
-    /// Требование: убрать неприятный зазор на no-notch → ширина таймера должна быть динамической,
-    /// и trailing inset добавлять только когда есть цифры.
     private var timerMenuCell: some View {
-        // Важно: чтобы не было "дёргания" при смене значения таймера,
-        // мы НЕ создаём/удаляем Text (он всегда в иерархии),
-        // но делаем ширину под цифры 3-состояний:
-        // 0 символов (off), 1 символ (3/5), 2 символа (10).
         let digitCount = timerDigitCount
         let digitsWidth = timerDigitsWidth(for: digitCount)
-        let hasValue = (digitCount > 0)
+        let hasValue = digitCount > 0
 
         return Menu {
-            ForEach(CaptureDelay.allCases, id: \.self) { d in
-                Button(d.title) { model.delay = d }
+            ForEach(CaptureDelay.allCases, id: \.self) { delay in
+                Button(delay.title) { model.delay = delay }
             }
         } label: {
-            HStack(spacing: timerIconToValueGap) {
+            HStack(spacing: metrics.timerIconToValueGap) {
                 Image(systemName: "timer")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.9))
-                    .frame(width: iconSize, height: iconSize)
+                    .frame(width: metrics.iconSize, height: metrics.iconSize)
 
-                // Всегда присутствует в иерархии → нет layout-jump.
                 Text(model.delay.shortLabel ?? "")
                     .font(.system(size: 12, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.9))
                     .frame(width: digitsWidth, height: 12, alignment: .leading)
                     .opacity(hasValue ? 1 : 0)
-                    // не даём SwiftUI "переигрывать" метрики текста
                     .transaction { $0.animation = nil }
             }
-            .padding(.trailing, hasValue ? timerTrailingInsetWithValue : 0)
+            .padding(.trailing, hasValue ? metrics.timerTrailingInsetWithValue : 0)
             .frame(width: timerCellWidth(digitsWidth: digitsWidth, hasValue: hasValue), alignment: .leading)
             .contentShape(Rectangle())
-            // выключаем неявные анимации именно для изменения ширины/паддинга этой ячейки
             .transaction { $0.animation = nil }
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(height: iconSize)
-        // и здесь тоже — чтобы смена delay не "тянула" панель
+        .frame(height: metrics.iconSize)
         .animation(nil, value: model.delay)
     }
 
-
-    /// ВАЖНО: эта кнопка ТЕПЕРЬ не делает скрин — она открывает трей.
     private var trayButtonCell: some View {
         Button(action: onToggleTray) {
-            Image(systemName: "photo.stack")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
-                .frame(width: iconSize, height: iconSize)
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(width: metrics.iconSize, height: metrics.iconSize)
         }
         .buttonStyle(.plain)
-        .frame(width: cellWidth, height: iconSize)
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
         .contentShape(Rectangle())
     }
 
@@ -281,9 +257,7 @@ struct NotchPanelView: View {
             Button("Settings") {
                 NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
             }
-
             Divider()
-
             Button("Quit NotchShot") {
                 NSApp.terminate(nil)
             }
@@ -291,12 +265,12 @@ struct NotchPanelView: View {
             Image(systemName: "ellipsis.circle")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
-                .frame(width: iconSize, height: iconSize)
+                .frame(width: metrics.iconSize, height: metrics.iconSize)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: cellWidth, height: iconSize)
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
 
     private var captureButton: some View {
@@ -304,9 +278,9 @@ struct NotchPanelView: View {
             Text("Capture")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.95))
-                .frame(width: captureButtonSize.width, height: captureButtonSize.height)
+                .frame(width: metrics.captureButtonWidth, height: metrics.buttonHeight)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
                         .fill(Color.white.opacity(0.14))
                 )
         }
@@ -314,15 +288,11 @@ struct NotchPanelView: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - Dynamic sizing
-
-    /// 0/1/2 "моноширинных" символа под цифры.
-    /// Значения подобраны под SF Pro 12 + monospacedDigit().
     private func timerDigitsWidth(for digitCount: Int) -> CGFloat {
         switch digitCount {
         case 0: return 0
         case 1: return 8
-        default: return 16
+        default: return metrics.timerValueWidth
         }
     }
 
@@ -332,33 +302,19 @@ struct NotchPanelView: View {
     }
 
     private func timerCellWidth(digitsWidth: CGFloat, hasValue: Bool) -> CGFloat {
-        // Базовое состояние (off): только иконка в стандартной cellWidth.
-        guard hasValue else { return cellWidth }
-        // icon + gap + digitsWidth + trailingInset
-        return iconSize + timerIconToValueGap + digitsWidth + timerTrailingInsetWithValue
+        guard hasValue else { return metrics.cellWidth }
+        return metrics.iconSize + metrics.timerIconToValueGap + digitsWidth + metrics.timerTrailingInsetWithValue
     }
-
-    /// Совместимость со старым именем: "расширенная" ширина (2 символа).
-    private var timerCellWidthExpanded: CGFloat {
-        timerCellWidth(digitsWidth: timerDigitsWidth(for: 2), hasValue: true)
-    }
-
-
-    // MARK: - Content animation (driven by controller)
 
     private var contentOpacity: Double {
         let t = interaction.contentVisibility
         if t <= 0 { return 0.0 }
         if t >= 1 { return 1.0 }
-        let held = max(0.0, (t - 0.15) / 0.85)
-        return held
+        return max(0.0, (t - 0.15) / 0.85)
     }
-
-    // MARK: - Panel animation (background only)
 
     private var panelScale: CGFloat {
         let t = interaction.contentVisibility
-        // Subtle "pop" like macOS: background grows a bit while content fades in.
         return CGFloat(0.97 + 0.03 * t)
     }
 
@@ -369,5 +325,4 @@ struct NotchPanelView: View {
     private var contentFade: Animation {
         .easeOut(duration: 0.16)
     }
-
 }

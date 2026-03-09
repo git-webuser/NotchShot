@@ -4,9 +4,7 @@ import Foundation
 import Combine
 
 struct NotchTrayView: View {
-    let hasNotch: Bool
-    let notchGap: CGFloat
-    let edgeSafe: CGFloat
+    let metrics: NotchMetrics
 
     @ObservedObject var trayModel: NotchTrayModel
     let onBack: () -> Void
@@ -15,91 +13,110 @@ struct NotchTrayView: View {
 
     var body: some View {
         Group {
-            if hasNotch {
+            if metrics.hasNotch {
                 notchLayout
             } else {
                 noNotchLayout
             }
         }
-        .frame(height: 34)
+        .frame(height: metrics.panelHeight)
     }
 
     private var notchLayout: some View {
         GeometryReader { geo in
-            let w = geo.size.width
-            let shoulders = max(0, (w - notchGap) / 2)
+            let totalWidth = geo.size.width
+            let shoulders = max(0, (totalWidth - metrics.notchGap) / 2)
 
             ZStack {
-                NotchShape().fill(.black)
+                NotchShape()
+                    .fill(Color.black)
+                    .compositingGroup()
+                    .offset(y: -metrics.pixel)
 
                 HStack(spacing: 0) {
                     leftContent
-                        .padding(.leading, edgeSafe)
+                        .padding(.leading, metrics.edgeSafe)
+                        .padding(.trailing, metrics.leftMinToNotch)
                         .frame(width: shoulders, alignment: .leading)
 
-                    Color.clear.frame(width: notchGap)
+                    Color.clear.frame(width: metrics.notchGap)
 
                     rightContent
-                        .padding(.trailing, edgeSafe)
+                        .padding(.leading, metrics.rightMinFromNotch)
+                        .padding(.trailing, metrics.edgeSafe)
                         .frame(width: shoulders, alignment: .trailing)
                 }
+                .frame(height: metrics.panelHeight)
             }
         }
     }
 
     private var noNotchLayout: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.black)
+            RoundedRectangle(cornerRadius: metrics.panelRadius, style: .continuous)
+                .fill(Color.black)
 
-            HStack(spacing: 12) {
+            HStack(spacing: metrics.gap) {
                 leftContent
-                Spacer(minLength: 12)
+                Spacer(minLength: metrics.gap)
                 rightContent
             }
-            .padding(.horizontal, edgeSafe)
+            .padding(.horizontal, metrics.outerSideInset)
+            .frame(height: metrics.panelHeight)
         }
     }
 
     private var leftContent: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: metrics.gap) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: metrics.iconSize, height: metrics.iconSize)
             }
             .buttonStyle(.plain)
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
+            .contentShape(Rectangle())
 
-            Menu {
-                ForEach(ColorSchemeType.allCases, id: \.self) { s in
-                    Button(s.title) { scheme = s }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(scheme.title)
-                        .font(.system(size: 12, weight: .semibold))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 10))
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.12))
-                )
-            }
-            .menuIndicator(.hidden)
+            schemeMenu
         }
+    }
+
+    private var schemeMenu: some View {
+        Menu {
+            ForEach(ColorSchemeType.allCases, id: \.self) { s in
+                Button(s.title) { scheme = s }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(scheme.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.95))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: metrics.buttonHeight)
+            .background(
+                RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
+                    .fill(Color.white.opacity(0.14))
+            )
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
     }
 
     private var rightContent: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(trayModel.colors) { item in
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
                         .fill(Color(nsColor: item.color))
-                        .frame(width: 26, height: 26)
+                        .frame(width: metrics.buttonHeight + 2, height: metrics.buttonHeight + 2)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: metrics.buttonRadius, style: .continuous)
                                 .stroke(Color.white.opacity(0.12), lineWidth: 1)
                         )
                         .onTapGesture {
@@ -112,7 +129,7 @@ struct NotchTrayView: View {
                 }
             }
         }
-        .frame(height: 28)
+        .frame(height: metrics.buttonHeight + 4)
     }
 }
 

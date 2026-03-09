@@ -1,7 +1,6 @@
 import AppKit
 import CoreGraphics
 import Carbon
-import ApplicationServices
 
 final class NotchHoverController: NSObject {
     private let panel: NotchPanelController
@@ -9,12 +8,8 @@ final class NotchHoverController: NSObject {
     private var statusItem: NSStatusItem?
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
-
     private var hotKeyRef: EventHotKeyRef?
     private var hotKeyHandlerRef: EventHandlerRef?
-
-    private let triggerHeight: CGFloat = 34
-    private let fallbackTriggerWidth: CGFloat = 186
 
     // Control + Option + Command + N
     private let hotKeyCode: UInt32 = UInt32(kVK_ANSI_N)
@@ -42,14 +37,11 @@ final class NotchHoverController: NSObject {
         uninstallStatusItem()
     }
 
-    // MARK: - Status item
-
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
 
         guard let button = item.button else { return }
-
         button.image = NSImage(systemSymbolName: "camera", accessibilityDescription: "NotchShot")
         button.imagePosition = .imageOnly
         button.target = self
@@ -70,21 +62,13 @@ final class NotchHoverController: NSObject {
         panel.toggleAnimated(on: screen)
     }
 
-    // MARK: - Hotkey
-
     private func installHotKey() {
-        var eventSpec = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        var eventSpec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
 
         let callback: EventHandlerUPP = { _, eventRef, userData in
             guard let userData, let eventRef else { return noErr }
 
-            let controller = Unmanaged<NotchHoverController>
-                .fromOpaque(userData)
-                .takeUnretainedValue()
-
+            let controller = Unmanaged<NotchHoverController>.fromOpaque(userData).takeUnretainedValue()
             var incomingHotKeyID = EventHotKeyID()
             let status = GetEventParameter(
                 eventRef,
@@ -95,7 +79,6 @@ final class NotchHoverController: NSObject {
                 nil,
                 &incomingHotKeyID
             )
-
             guard status == noErr else { return noErr }
 
             controller.handleHotKey(incomingHotKeyID)
@@ -110,14 +93,9 @@ final class NotchHoverController: NSObject {
             UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()),
             &hotKeyHandlerRef
         )
-
         guard handlerStatus == noErr else { return }
 
-        let hotKeyID = EventHotKeyID(
-            signature: fourCharCode("NTSH"),
-            id: 1
-        )
-
+        let hotKeyID = EventHotKeyID(signature: fourCharCode("NTSH"), id: 1)
         let registerStatus = RegisterEventHotKey(
             hotKeyCode,
             hotKeyModifiers,
@@ -126,7 +104,6 @@ final class NotchHoverController: NSObject {
             0,
             &hotKeyRef
         )
-
         if registerStatus != noErr {
             hotKeyRef = nil
         }
@@ -137,7 +114,6 @@ final class NotchHoverController: NSObject {
             UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
         }
-
         if let hotKeyHandlerRef {
             RemoveEventHandler(hotKeyHandlerRef)
             self.hotKeyHandlerRef = nil
@@ -150,11 +126,7 @@ final class NotchHoverController: NSObject {
         panel.toggleAnimated(on: screen)
     }
 
-    // MARK: - Event tap
-
     private func installEventTap() {
-        requestAccessibilityIfNeeded()
-
         let mask = (1 << CGEventType.leftMouseDown.rawValue)
 
         let callback: CGEventTapCallBack = { _, type, event, userInfo in
@@ -162,9 +134,7 @@ final class NotchHoverController: NSObject {
                 return Unmanaged.passUnretained(event)
             }
 
-            let controller = Unmanaged<NotchHoverController>
-                .fromOpaque(userInfo)
-                .takeUnretainedValue()
+            let controller = Unmanaged<NotchHoverController>.fromOpaque(userInfo).takeUnretainedValue()
 
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let tap = controller.eventTap {
@@ -177,11 +147,9 @@ final class NotchHoverController: NSObject {
                 return Unmanaged.passUnretained(event)
             }
 
-            let point = event.location
             DispatchQueue.main.async {
                 controller.handleGlobalLeftMouseDown()
             }
-
             return Unmanaged.passUnretained(event)
         }
 
@@ -193,18 +161,15 @@ final class NotchHoverController: NSObject {
             callback: callback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("NotchHoverController: CGEvent.tapCreate failed")
             return
         }
 
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            print("NotchHoverController: failed to create run loop source for event tap")
             return
         }
 
         self.eventTap = tap
         self.eventTapSource = source
-
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
     }
@@ -213,37 +178,29 @@ final class NotchHoverController: NSObject {
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
-
         if let source = eventTapSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
             self.eventTapSource = nil
         }
-
         self.eventTap = nil
-    }
-
-    private func requestAccessibilityIfNeeded() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     private func handleGlobalLeftMouseDown() {
         let mouse = NSEvent.mouseLocation
         guard let screen = screenForPoint(mouse) else { return }
-
-        let hasNotch = screen.notchGapWidth > 0
-        guard hasNotch else { return }
+        guard screen.notchGapWidth > 0 else { return }
 
         let trigger = triggerRect(on: screen)
-
-        print("mouse:", mouse, "trigger:", trigger)
+        guard !trigger.isNull else { return }
 
         if panel.isVisible {
+            if panel.suppressesGlobalAutoHide {
+                return
+            }
             if trigger.contains(mouse) {
                 panel.hideAnimated()
                 return
             }
-
             if !panel.isPointInsidePanel(mouse) {
                 panel.hideAnimated()
             }
@@ -254,8 +211,6 @@ final class NotchHoverController: NSObject {
             panel.showAnimated(on: screen)
         }
     }
-
-    // MARK: - Helpers
 
     private func preferredScreenForOpen() -> NSScreen {
         let mouse = NSEvent.mouseLocation
@@ -269,33 +224,17 @@ final class NotchHoverController: NSObject {
     private func triggerRect(on screen: NSScreen) -> CGRect {
         let sf = screen.frame
         let vf = screen.visibleFrame
-
         let notchWidth = screen.notchGapWidth
         guard notchWidth > 0 else { return .null }
 
         let menuBarHeight = max(0, sf.maxY - vf.maxY)
         guard menuBarHeight > 0 else { return .null }
 
-        // Чуть расширяем, чтобы проще попадать мышью.
         let horizontalHitInset: CGFloat = 12
         let width = notchWidth + horizontalHitInset * 2
-
         let x = sf.midX - width / 2
-
-        // ВАЖНО:
-        // menu bar находится между vf.maxY и sf.maxY
         let y = vf.maxY
-
         return CGRect(x: x, y: y, width: width, height: menuBarHeight)
-    }
-}
-
-private extension NSScreen {
-    var notchGapWidth: CGFloat {
-        guard #available(macOS 12.0, *),
-              let left = auxiliaryTopLeftArea,
-              let right = auxiliaryTopRightArea else { return 0 }
-        return max(0, frame.width - left.width - right.width)
     }
 }
 
