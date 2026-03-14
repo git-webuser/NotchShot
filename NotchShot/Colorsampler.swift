@@ -19,18 +19,16 @@ final class ColorSampler {
 
     private var lastColor: NSColor = .black
     private var isStopped = false
-    private var startTime: Date = .distantPast
-    private let ignoreClicksDuration: TimeInterval = 0.5
+    private var clicksToIgnore: Int = 0
 
     private var captureInFlight = false
     private var pendingPosition: NSPoint? = nil
 
     private let cursorOverlay = CursorOverlay()
 
-    func start(ignoreClicksUntil: Date? = nil) {
+    func start(ignoreFirstClicks: Int = 1) {
         guard !isStopped else { return }
-        startTime = ignoreClicksUntil ?? Date()
-        print(">>> sampler.start() startTime=\(startTime) now=\(Date())")
+        clicksToIgnore = ignoreFirstClicks
 
         // Движение через FullscreenTrackingView — надёжнее глобального монитора
         cursorOverlay.onMouseMoved = { [weak self] pos in
@@ -72,14 +70,21 @@ final class ColorSampler {
             return nil
         }
 
-        leftClickMonitor = NSEvent.addGlobalMonitorForEvents(
+        // Используем локальный монитор — глобальный не получает события
+        // собственного приложения когда оно является key window (FullscreenCursorWindow).
+        leftClickMonitor = NSEvent.addLocalMonitorForEvents(
             matching: .leftMouseUp
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                guard !self.isStopped, self.isReady else { return }
+        ) { [weak self] event in
+            guard let self else { return event }
+            DispatchQueue.main.async {
+                guard !self.isStopped else { return }
+                if self.clicksToIgnore > 0 {
+                    self.clicksToIgnore -= 1
+                    return
+                }
                 self.confirm()
             }
+            return event
         }
 
         rightClickMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -96,7 +101,6 @@ final class ColorSampler {
             matching: .keyDown
         ) { [weak self] event in
             guard let self else { return }
-            print(">>> global keyDown: keyCode=\(event.keyCode)")
             guard event.keyCode == 53 else { return }
             Task { @MainActor in
                 guard !self.isStopped else { return }
@@ -137,11 +141,7 @@ final class ColorSampler {
         }
     }
 
-    private var isReady: Bool {
-        let elapsed = Date().timeIntervalSince(startTime)
-        print(">>> isReady: elapsed=\(elapsed) threshold=\(ignoreClicksDuration)")
-        return Date() >= startTime.addingTimeInterval(ignoreClicksDuration)
-    }
+
 
     private func confirm() {
         let color = lastColor

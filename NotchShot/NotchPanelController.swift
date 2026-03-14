@@ -423,10 +423,11 @@ final class NotchPanelController: NSObject {
         // чужого приложения как только фокус уходит от нашей панели.
         hideAnimated()
 
-        // Запоминаем время клика ДО задержки — чтобы ignoreClicksUntil
-        // отсчитывался от момента клика по меню, а не от старта sampler'а.
-        let clickTime = Date()
-        
+        // Скрываем курсор немедленно — до задержки 220мс.
+        // Иначе macOS восстанавливает курсор другого приложения пока наша панель скрывается.
+        CursorOverlay.hideCallCount = 1
+        NSCursor.hide()
+
         // Запускаем sampler после завершения анимации скрытия (~200мс)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak self] in
             guard let self else { return }
@@ -475,7 +476,7 @@ final class NotchPanelController: NSObject {
             }
 
             // Передаём время клика — игнорируем mouseUp от закрытия меню
-            sampler.start(ignoreClicksUntil: clickTime.addingTimeInterval(1.5))
+            sampler.start(ignoreFirstClicks: 2)  // меню генерирует 2 лишних mouseUp
         }
     }
 

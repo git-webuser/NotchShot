@@ -69,7 +69,7 @@ private final class FullscreenTrackingView: NSView {
         trackingAreas.forEach { removeTrackingArea($0) }
         addTrackingArea(NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         ))
@@ -88,8 +88,18 @@ private final class FullscreenTrackingView: NSView {
         onMouseMoved?(pos)
     }
 
-    // НЕ переопределяем mouseDown/mouseUp — это вызывает рекурсию через NSApp.sendEvent.
-    // Глобальные мониторы NSEvent в ColorSampler получают клики независимо от активного окна.
+    // mouseDown и mouseUp нужно переопределить чтобы view стал first responder
+    // и локальный монитор в ColorSampler получал эти события.
+    override func mouseDown(with event: NSEvent) {
+        // Принимаем mouseDown — это делает view первым responder'ом
+        // и гарантирует что следующий mouseUp придёт в тот же view.
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        // Принимаем mouseUp — локальный монитор ColorSampler его получит.
+    }
+
+    override var acceptsFirstResponder: Bool { true }
 }
 
 // MARK: - FullscreenCursorWindow
@@ -126,12 +136,15 @@ final class CursorOverlay {
         cp.setFrame(frameForCursor(pos), display: false)
         refreshCrosshair()
 
+        // Курсор уже скрыт из pickColor() — просто инициализируем счётчик.
+        // hide() вызовет unhide() ровно столько раз сколько было hide().
+        if CursorOverlay.hideCallCount == 0 {
+            NSCursor.hide()
+        }
+        CursorOverlay.hideCallCount = max(1, CursorOverlay.hideCallCount)
+
         fw.orderFrontRegardless()
         fw.makeKey()
-
-        CursorOverlay.hideCallCount = 1
-        NSCursor.hide()
-
         cp.orderFrontRegardless()
     }
 
