@@ -62,10 +62,10 @@ private struct CrosshairShape: Shape {
 
 private final class FullscreenTrackingView: NSView {
 
-    // Единственная ответственность этого view:
-    // 1. Устанавливать прозрачный курсор на каждый mouseMoved
-    // 2. Принимать mouseDown/mouseUp для работы локального монитора в ColorSampler
-    // Позиция мыши НЕ обрабатывается здесь — только через globalMouseMonitor в CursorOverlay.
+    /// Callback позиции — primary source движения мыши на том экране,
+    /// где стоит FullscreenCursorWindow. Global monitor используется
+    /// только для других экранов и НЕ дублирует этот callback.
+    var onMouseMoved: ((NSPoint) -> Void)?
 
     private lazy var transparentCursor: NSCursor = {
         let img = NSImage(size: NSSize(width: 1, height: 1))
@@ -89,6 +89,12 @@ private final class FullscreenTrackingView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         transparentCursor.set()
+        guard let win = window else { return }
+        let pos = NSPoint(
+            x: event.locationInWindow.x + win.frame.minX,
+            y: event.locationInWindow.y + win.frame.minY
+        )
+        onMouseMoved?(pos)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -131,27 +137,32 @@ final class CursorOverlay {
     /// macOS восстанавливает курсор при закрытии меню, поэтому нельзя
     /// просто вызвать .set() раньше — нужно дождаться конца трекинга.
     static func hideCursorAfterMenuCloses() {
-        NotificationCenter.default.addObserver(
+        nonisolated(unsafe) var token: NSObjectProtocol?
+        token = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification,
             object: nil,
             queue: .main
         ) { _ in
-            // Снимаем подписку сразу — нас интересует только ближайшее закрытие
-            NotificationCenter.default.removeObserver(
-                self,
-                name: NSMenu.didEndTrackingNotification,
-                object: nil
-            )
-            // Небольшой runloop-цикл: даём системе завершить восстановление курсора
+            if let t = token {
+                NotificationCenter.default.removeObserver(t)
+                token = nil
+            }
+            // Два runloop-цикла: macOS завершает restore курсора асинхронно
             DispatchQueue.main.async {
-                let img = NSImage(size: NSSize(width: 1, height: 1))
-                img.lockFocus()
-                NSColor.clear.set()
-                NSRect(origin: .zero, size: img.size).fill()
-                img.unlockFocus()
-                NSCursor(image: img, hotSpot: .zero).set()
+                DispatchQueue.main.async {
+                    CursorOverlay.applyTransparentCursor()
+                }
             }
         }
+    }
+
+    static func applyTransparentCursor() {
+        let img = NSImage(size: NSSize(width: 1, height: 1))
+        img.lockFocus()
+        NSColor.clear.set()
+        NSRect(origin: .zero, size: img.size).fill()
+        img.unlockFocus()
+        NSCursor(image: img, hotSpot: .zero).set()
     }
 
     func show() {
@@ -198,8 +209,11 @@ final class CursorOverlay {
 
     private func installGlobalMouseMonitor() {
         guard globalMouseMonitor == nil else { return }
+        // Только .mouseMoved — двигаем crosshair на экранах без FullscreenTrackingView.
+        // НЕ вызываем onMouseMoved: это дублировало бы TrackingView на primary screen.
+        // НЕ слушаем .leftMouseDragged: этим занимается ColorSampler.mouseMonitor.
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.mouseMoved, .leftMouseDragged]
+            matching: .mouseMoved
         ) { [weak self] _ in
             guard let self else { return }
             let pos = NSEvent.mouseLocation
@@ -247,6 +261,11 @@ final class CursorOverlay {
         let trackingView = FullscreenTrackingView(frame: screen.frame)
         trackingView.wantsLayer = true
         trackingView.layer?.backgroundColor = CGColor.clear
+        trackingView.onMouseMoved = { [weak self] pos in
+            guard let self else { return }
+            self.move(to: pos)
+            self.onMouseMoved?(pos)
+        }
         fw.contentView = trackingView
         self.fullscreenWindow = fw
     }
