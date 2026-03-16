@@ -123,6 +123,25 @@ final class ColorSampler {
     }
 
     private func handleKeyDown(_ event: NSEvent) {
+        // Стрелки для точного позиционирования
+        // Стрелка = 1pt, Shift = 10pt, Shift+Option = 50pt
+        let arrowMap: [UInt16: (CGFloat, CGFloat)] = [
+            126: (0, -1), 125: (0, 1), 123: (-1, 0), 124: (1, 0)
+        ]
+        if let (dx, dy) = arrowMap[event.keyCode] {
+            let mods = event.modifierFlags
+            let step: CGFloat = mods.contains([.shift, .option]) ? 50
+                              : mods.contains(.shift)            ? 10 : 1
+            let cur = NSEvent.mouseLocation
+            let primaryH = NSScreen.screens.first(where: { $0.frame.origin == .zero })?.frame.height
+                           ?? NSScreen.screens.first?.frame.height ?? 0
+            CGWarpMouseCursorPosition(CGPoint(x: cur.x + dx * step,
+                                               y: primaryH - (cur.y - dy * step)))
+            let newPos = NSPoint(x: cur.x + dx * step, y: cur.y - dy * step)
+            cursorOverlay.move(to: newPos)
+            scheduleCapture(at: newPos)
+            return
+        }
         switch event.keyCode {
         case 53: cancel()
         case 3:
@@ -251,9 +270,9 @@ final class ColorSampler {
         return (color, cgImage, CGPoint(x: cx, y: cy))
     }
 
-    // MARK: - MagnifierData
+    // MARK: - MagnifierData (3×3 из уже захваченного снимка)
 
-    func buildMagnifier(from cgImage: CGImage, centerPx: CGPoint, gridSize: Int = 5) -> MagnifierData {
+    func buildMagnifier(from cgImage: CGImage, centerPx: CGPoint, gridSize: Int = 3) -> MagnifierData {
         let half = gridSize / 2
         let imgW = cgImage.width, imgH = cgImage.height
         var rows: [[NSColor]] = []

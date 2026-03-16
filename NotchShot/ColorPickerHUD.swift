@@ -68,7 +68,7 @@ struct MagnifierData: Equatable {
     let pixels: [[NSColor]]
     let gridSize: Int
 
-    static let empty = MagnifierData(pixels: [], gridSize: 5)
+    static let empty = MagnifierData(pixels: [], gridSize: 3)
 
     static func == (lhs: MagnifierData, rhs: MagnifierData) -> Bool {
         // Сравниваем только размер — цвет центра достаточен для refresh
@@ -81,145 +81,12 @@ struct MagnifierData: Equatable {
 struct ColorPickerHUDView: View {
     let phase: ColorPickerHUDPhase
     let format: HUDColorFormat
-    let showHint: Bool
     let magnifier: MagnifierData
 
-    // 5×5 сетка, ячейки 9pt = 45pt итого — пропорционально высоте текстового блока
-    private let gridSize = 5
-    private let cellSize: CGFloat = 9
+    private let gridSize = 3
+    private let cellSize: CGFloat = 14
     private var magnifierSize: CGFloat { CGFloat(gridSize) * cellSize }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            magnifierView
-            textPanel
-        }
-        .padding(8)
-        .background(HUDBackground())
-        .fixedSize()
-    }
-
-    // MARK: - Magnifier / Success swatch
-
-    @ViewBuilder
-    private var magnifierView: some View {
-        if case .success(let c) = phase {
-            // Success: лупа заменяется цветным квадратом
-            Color(nsColor: c)
-                .frame(width: magnifierSize, height: magnifierSize)
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .stroke(Color.white.opacity(0.2), lineWidth: 1))
-                .transition(.opacity)
-        } else {
-            liveMagnifier
-        }
-    }
-
-    private var liveMagnifier: some View {
-        ZStack {
-            // Пиксели
-            if !magnifier.pixels.isEmpty {
-                Canvas { ctx, _ in
-                    for row in 0..<gridSize {
-                        guard row < magnifier.pixels.count else { break }
-                        for col in 0..<gridSize {
-                            guard col < magnifier.pixels[row].count else { break }
-                            ctx.fill(
-                                Path(CGRect(x: CGFloat(col) * cellSize, y: CGFloat(row) * cellSize,
-                                            width: cellSize, height: cellSize)),
-                                with: .color(Color(nsColor: magnifier.pixels[row][col]))
-                            )
-                        }
-                    }
-                }
-                .frame(width: magnifierSize, height: magnifierSize)
-            } else {
-                Rectangle().fill(Color.white.opacity(0.07))
-                    .frame(width: magnifierSize, height: magnifierSize)
-            }
-            // Сетка
-            Canvas { ctx, size in
-                var p = Path()
-                for i in 1..<gridSize {
-                    let v = CGFloat(i) * cellSize
-                    p.move(to: .init(x: v, y: 0));          p.addLine(to: .init(x: v, y: size.height))
-                    p.move(to: .init(x: 0, y: v));          p.addLine(to: .init(x: size.width, y: v))
-                }
-                ctx.stroke(p, with: .color(.white.opacity(0.15)), lineWidth: 0.5)
-            }
-            .frame(width: magnifierSize, height: magnifierSize)
-            // Рамка центральной ячейки
-            Rectangle().stroke(Color.white, lineWidth: 1.5)
-                .frame(width: cellSize, height: cellSize)
-        }
-        .frame(width: magnifierSize, height: magnifierSize)
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .stroke(Color.white.opacity(0.22), lineWidth: 1))
-        .transition(.opacity)
-    }
-
-    // MARK: - Text panel
-
-    @ViewBuilder
-    private var textPanel: some View {
-        if case .success = phase {
-            successContent
-                .transition(.opacity.combined(with: .scale(scale: 1.04, anchor: .leading)))
-        } else {
-            liveContent
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
-        }
-    }
-
-    private var liveContent: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(format.title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.4))
-                .transaction { $0.animation = nil }
-            Text(valueText)
-                .font(.system(size: 15, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.white.opacity(valueOpacity))
-                .lineLimit(1)
-                .fixedSize()
-                .transaction { $0.animation = nil }
-            if showHint { hintRow.transition(.opacity) }
-        }
-        .frame(minWidth: 120, alignment: .leading)
-    }
-
-    private var successContent: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.white.opacity(0.9))
-                .symbolEffect(.bounce, value: phase)
-            Text("Copied")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
-        }
-        .frame(minWidth: 120, alignment: .leading)
-    }
-
-    private var hintRow: some View {
-        HStack(spacing: 6) {
-            hintKey("F")
-            Text("Format").foregroundStyle(.white.opacity(0.3))
-            hintKey("Esc")
-            Text("Cancel").foregroundStyle(.white.opacity(0.3))
-        }
-        .font(.system(size: 10, weight: .regular))
-    }
-
-    private func hintKey(_ label: String) -> some View {
-        Text(label)
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(.white.opacity(0.5))
-            .padding(.horizontal, 5).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.25), lineWidth: 1))
-    }
+    private var isSuccess: Bool { if case .success = phase { return true }; return false }
 
     private var valueText: String {
         switch phase {
@@ -227,11 +94,112 @@ struct ColorPickerHUDView: View {
         case .livePreview(let c), .success(let c): return format.format(c)
         }
     }
-
     private var valueOpacity: Double {
-        switch phase {
-        case .hidden, .idlePlaceholder: return 0.25
-        default: return 1.0
+        switch phase { case .hidden, .idlePlaceholder: return 0.25; default: return 1.0 }
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            magnifierArea
+            textArea
+        }
+        .padding(8)
+        .background(HUDBackground())
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isSuccess)
+        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: format)
+        .fixedSize()
+    }
+
+    @ViewBuilder private var magnifierArea: some View {
+        if case .success(let c) = phase {
+            Color(nsColor: c)
+                .frame(width: magnifierSize, height: magnifierSize)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.2), lineWidth: 1))
+                .transition(.opacity)
+        } else {
+            liveMagnifier.transition(.opacity)
+        }
+    }
+
+    private var liveMagnifier: some View {
+        ZStack {
+            if !magnifier.pixels.isEmpty {
+                Canvas { ctx, _ in
+                    for row in 0..<gridSize {
+                        guard row < magnifier.pixels.count else { break }
+                        for col in 0..<gridSize {
+                            guard col < magnifier.pixels[row].count else { break }
+                            ctx.fill(Path(CGRect(x: CGFloat(col)*cellSize, y: CGFloat(row)*cellSize,
+                                                  width: cellSize, height: cellSize)),
+                                     with: .color(Color(nsColor: magnifier.pixels[row][col])))
+                        }
+                    }
+                }.frame(width: magnifierSize, height: magnifierSize)
+            } else {
+                Rectangle().fill(Color.white.opacity(0.07)).frame(width: magnifierSize, height: magnifierSize)
+            }
+            Canvas { ctx, size in
+                var p = Path()
+                for i in 1..<gridSize {
+                    let v = CGFloat(i) * cellSize
+                    p.move(to: .init(x: v, y: 0)); p.addLine(to: .init(x: v, y: size.height))
+                    p.move(to: .init(x: 0, y: v)); p.addLine(to: .init(x: size.width, y: v))
+                }
+                ctx.stroke(p, with: .color(.white.opacity(0.18)), lineWidth: 0.5)
+            }.frame(width: magnifierSize, height: magnifierSize)
+            // Адаптивная рамка центральной ячейки — инвертирует цвет центрального пикселя
+            Rectangle()
+                .stroke(centerBorderColor, lineWidth: 1.5)
+                .frame(width: cellSize, height: cellSize)
+        }
+        .frame(width: magnifierSize, height: magnifierSize)
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.22), lineWidth: 1))
+    }
+
+    /// Цвет рамки центральной ячейки — контрастный относительно центрального пикселя.
+    private var centerBorderColor: Color {
+        guard magnifier.pixels.count > gridSize / 2,
+              magnifier.pixels[gridSize / 2].count > gridSize / 2 else { return .white }
+        let c = magnifier.pixels[gridSize / 2][gridSize / 2]
+        guard let srgb = c.usingColorSpace(.sRGB) else { return .white }
+        let lum = 0.299 * srgb.redComponent + 0.587 * srgb.greenComponent + 0.114 * srgb.blueComponent
+        return lum > 0.5 ? Color.black.opacity(0.85) : Color.white.opacity(0.9)
+    }
+
+    @ViewBuilder private var textArea: some View {
+        if isSuccess {
+            successRow.transition(.asymmetric(
+                insertion: .opacity.combined(with: .scale(scale: 1.05, anchor: .leading)),
+                removal: .opacity))
+        } else {
+            liveText.transition(.asymmetric(
+                insertion: .opacity,
+                removal: .opacity.combined(with: .scale(scale: 0.95, anchor: .leading))))
+        }
+    }
+
+    private var liveText: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(format.title)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.white.opacity(0.4))
+                .transaction { $0.animation = nil }
+            Text(valueText)
+                .font(.system(size: 13, weight: .medium).monospacedDigit())
+                .foregroundStyle(.white.opacity(valueOpacity))
+                .lineLimit(1).fixedSize()
+                .contentTransition(.numericText())
+                .animation(.easeOut(duration: 0.12), value: valueText)
+        }
+    }
+
+    private var successRow: some View {
+        HStack(spacing: 7) {
+            Text("Copied").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white.opacity(0.9))
+            Image(systemName: "checkmark.circle").font(.system(size: 17, weight: .regular))
+                .foregroundStyle(.white.opacity(0.8)).symbolEffect(.bounce, value: isSuccess)
         }
     }
 }
@@ -272,17 +240,13 @@ final class ColorPickerHUD {
 
     private var panel: NSPanel?
     private var hideWorkItem: DispatchWorkItem?
-    private var hintWorkItem: DispatchWorkItem?
 
     private(set) var currentFormat: HUDColorFormat = .hex
     private var currentPhase: ColorPickerHUDPhase = .hidden
-    private var showHint: Bool = false
     private var currentMagnifier: MagnifierData = .empty
 
     // Фиксированный размер — не меняется со сменой формата/хинта
     // Лупа 9×9 × 10pt = 90, padding 10×2 = 20, итого высота ~110
-    private let hudSize = CGSize(width: 240, height: 62)
-    private var currentSize: CGSize { hudSize }
 
     private let offsetX: CGFloat =  18
     private let offsetY: CGFloat = -30
@@ -298,7 +262,6 @@ final class ColorPickerHUD {
         currentFormat = format
         currentPhase  = .idlePlaceholder
         currentMagnifier = .empty
-        showHint = true
 
         ensurePanel()
         guard let panel else { return }
@@ -316,13 +279,6 @@ final class ColorPickerHUD {
             }
         }
 
-        let hintWork = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.showHint = false
-            self.refreshContent()
-        }
-        hintWorkItem = hintWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: hintWork)
     }
 
     func update(color: NSColor, cursorPosition: NSPoint, magnifier: MagnifierData?) {
@@ -332,15 +288,12 @@ final class ColorPickerHUD {
         moveToPosition(cursorPosition)
     }
 
-    func showSuccess(color: NSColor, on screen: NSScreen?, autoHideAfter delay: TimeInterval = 1.2) {
-        hintWorkItem?.cancel()
-        hintWorkItem = nil
-        showHint = false
+    func showSuccess(color: NSColor, on screen: NSScreen?, autoHideAfter delay: TimeInterval = 2.0) {
+
         currentPhase = .success(color)
         refreshContent()
-        // HUD остаётся на месте — никакого перемещения в угол
 
-        let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
+                let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
         hideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
@@ -348,10 +301,7 @@ final class ColorPickerHUD {
     func hide(animated: Bool = true) {
         hideWorkItem?.cancel()
         hideWorkItem = nil
-        hintWorkItem?.cancel()
-        hintWorkItem = nil
         currentPhase = .hidden
-        showHint = false
 
         guard let panel, panel.isVisible else { return }
 
@@ -379,7 +329,7 @@ final class ColorPickerHUD {
 
     private func frameForCursor(_ cursor: NSPoint, on screen: NSScreen) -> NSRect {
         let sf = screen.frame
-        let size = currentSize
+        let size = CGSize(width: 240, height: 62)
         let margin: CGFloat = 8
 
         var dx = offsetX
@@ -408,12 +358,24 @@ final class ColorPickerHUD {
         return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
+    private func frameBottomRight(on screen: NSScreen?) -> NSRect? {
+        guard let screen else { return nil }
+        let vf = screen.visibleFrame
+        let margin: CGFloat = 18
+        let size = CGSize(width: 240, height: 62)
+        return NSRect(
+            x: vf.maxX - margin - size.width,
+            y: vf.minY + margin,
+            width: size.width,
+            height: size.height
+        )
+    }
 
     // MARK: - Panel management
 
     private func ensurePanel() {
         guard panel == nil else { return }
-        let frame = NSRect(origin: .zero, size: currentSize)
+        let frame = NSRect(origin: .zero, size: CGSize(width: 240, height: 62))
         panel = makePanel(frame: frame)
     }
 
@@ -426,7 +388,6 @@ final class ColorPickerHUD {
         let view = ColorPickerHUDView(
             phase: currentPhase,
             format: currentFormat,
-            showHint: showHint,
             magnifier: currentMagnifier
         )
         if let hosting = blur.subviews.compactMap({ $0 as? NSHostingView<ColorPickerHUDView> }).first {
