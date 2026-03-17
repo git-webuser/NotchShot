@@ -16,9 +16,11 @@ final class ColorSampler {
     private var rightClickMonitor: Any?
     private var leftClickMonitor: Any?
     private var escMonitor: Any?
+    private var escEventTap: CFMachPort?
+    private var escEventTapSource: CFRunLoopSource?
 
     private var lastColor: NSColor = .black
-    private var isStopped = false
+    var isStopped = false
 
     private var captureInFlight = false
     private var pendingPosition: NSPoint? = nil
@@ -91,15 +93,44 @@ final class ColorSampler {
             }
         }
 
-        escMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: .keyDown
-        ) { [weak self] event in
-            guard let self else { return }
-            guard event.keyCode == 53 else { return }
-            Task { @MainActor in
-                guard !self.isStopped else { return }
-                self.cancel()
+        // CGEventTap для Esc — работает даже когда другое приложение
+        // перехватывает фокус (например поле ввода на другом Space).
+        // Глобальный NSEvent монитор в этом случае не получает keyDown.
+        let escTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
+            guard let userInfo else { return Unmanaged.passUnretained(event) }
+            let sampler = Unmanaged<ColorSampler>.fromOpaque(userInfo).takeUnretainedValue()
+
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let tap = sampler.escEventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+                return Unmanaged.passUnretained(event)
             }
+
+            guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+            guard event.getIntegerValueField(.keyboardEventKeycode) == 53 else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            DispatchQueue.main.async {
+                guard !sampler.isStopped else { return }
+                sampler.cancel()
+            }
+            // Поглощаем Esc чтобы он не попал в поле ввода
+            return nil
+        }
+
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        if let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+            callback: escTapCallback,
+            userInfo: selfPtr
+        ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) {
+            escEventTap = tap
+            escEventTapSource = source
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
         }
     }
 
@@ -112,6 +143,15 @@ final class ColorSampler {
         leftClickMonitor = nil
         rightClickMonitor = nil
         escMonitor = nil
+
+        if let tap = escEventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            if let src = escEventTapSource {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
+                escEventTapSource = nil
+            }
+            escEventTap = nil
+        }
     }
 
     private func handleLocalEvent(_ event: NSEvent) {
@@ -162,7 +202,7 @@ final class ColorSampler {
         onConfirmed?(color)
     }
 
-    private func cancel() {
+    func cancel() {
         stop()
         onCancelled?()
     }

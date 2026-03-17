@@ -1,63 +1,72 @@
 import AppKit
 import SwiftUI
 
-
-
 // MARK: - Screenshot-style crosshair cursor
 
-/// Воспроизводит системный screenshot crosshair (Shift+Cmd+4) как кастомный NSCursor.
-/// Рисуется программно: 4 линии 1×11pt от центра, 1pt белый центральный пиксель.
-private func makeScreenshotCrosshairCursor() -> NSCursor {
-    let size: CGFloat = 24
+/// Точная копия системного screencapture crosshair.
+/// Геометрия и порядок слоёв из публичной библиотеки компонентов Apple в Figma.
+private func makeScreenshotCrosshairCursor(contrastAgainst _: NSColor? = nil) -> NSCursor {
+    let size: CGFloat = 25
+    let cx = size / 2
+    let cy = size / 2
+
+    let armGap:      CGFloat = 0.5
+    let armEnd:      CGFloat = 11.5
+    let armCore:     CGFloat = 1.0
+    let haloWidth:   CGFloat = 3.0
+    let ringFillR:   CGFloat = 5.5
+    let ringStrokeR: CGFloat = 5.9
+    let ringStrokeW: CGFloat = 0.8
+
+    let ringFillColor   = NSColor(white: 0.0, alpha: 0.10)
+    let ringStrokeColor = NSColor(white: 0.0, alpha: 0.25)
+    let haloColor       = NSColor(white: 1.0, alpha: 0.25)
+    let armColor        = NSColor(white: 0.0, alpha: 0.85)
 
     let image = NSImage(size: NSSize(width: size, height: size))
     image.lockFocus()
+    defer { image.unlockFocus() }
 
-    guard let ctx = NSGraphicsContext.current?.cgContext else {
-        image.unlockFocus()
-        return .crosshair
-    }
+    guard let ctx = NSGraphicsContext.current?.cgContext else { return .crosshair }
 
     ctx.scaleBy(x: 1, y: -1)
     ctx.translateBy(x: 0, y: -size)
+    ctx.setAllowsAntialiasing(true)
+    ctx.setShouldAntialias(true)
+    ctx.interpolationQuality = .high
 
-    let cx = size / 2, cy = size / 2
-    let armLen:  CGFloat = 11
-    let thick:   CGFloat = 1.0   // толщина линий как у iBeam
-    let outline: CGFloat = 1.0   // белая обводка с каждой стороны
-    let gap:     CGFloat = 0.5   // зазор у центра — убирает артефакт пересечения
+    let dirs: [(CGFloat, CGFloat)] = [(0,1),(0,-1),(1,0),(-1,0)]
 
-    let arms: [CGRect] = [
-        CGRect(x: cx - thick/2, y: cy - armLen, width: thick, height: armLen - gap),
-        CGRect(x: cx - thick/2, y: cy + gap,    width: thick, height: armLen - gap),
-        CGRect(x: cx - armLen,  y: cy - thick/2, width: armLen - gap, height: thick),
-        CGRect(x: cx + gap,     y: cy - thick/2, width: armLen - gap, height: thick),
-    ]
-
-    // Белая обводка — чистая, как у iBeam и других системных курсоров
-    ctx.setFillColor(NSColor(white: 1.0, alpha: 0.6).cgColor)
-    for arm in arms {
-        ctx.fill(arm.insetBy(dx: -outline, dy: -outline))
-    }
-    ctx.fill(CGRect(
-        x: cx - thick/2 - outline, y: cy - thick/2 - outline,
-        width: thick + outline * 2, height: thick + outline * 2
-    ))
-
-    // Основные линии — чёрные
-    ctx.setFillColor(NSColor.black.cgColor)
-    for arm in arms {
-        ctx.fill(arm)
+    func strokeArms(color: NSColor, width: CGFloat, from: CGFloat, to: CGFloat) {
+        ctx.setStrokeColor(color.cgColor)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(.butt)
+        for (dx, dy) in dirs {
+            ctx.move(to:    CGPoint(x: cx + dx * from, y: cy + dy * from))
+            ctx.addLine(to: CGPoint(x: cx + dx * to,   y: cy + dy * to))
+        }
+        ctx.strokePath()
     }
 
-    // Центральный пиксель белый
-    ctx.setFillColor(NSColor.white.cgColor)
-    ctx.fill(CGRect(x: cx - thick/2, y: cy - thick/2, width: thick, height: thick))
+    // 1. Ring fill
+    ctx.setFillColor(ringFillColor.cgColor)
+    ctx.fillEllipse(in: CGRect(x: cx-ringFillR, y: cy-ringFillR,
+                               width: ringFillR*2, height: ringFillR*2))
+    // 2. Ring stroke
+    ctx.setStrokeColor(ringStrokeColor.cgColor)
+    ctx.setLineWidth(ringStrokeW)
+    ctx.strokeEllipse(in: CGRect(x: cx-ringStrokeR, y: cy-ringStrokeR,
+                                 width: ringStrokeR*2, height: ringStrokeR*2))
+    // 3. Halo — полная длина, поверх кольца
+    strokeArms(color: haloColor, width: haloWidth, from: 0, to: armEnd + armGap)
+    // 4. Arms поверх гало
+    strokeArms(color: armColor, width: armCore, from: armGap, to: armEnd)
 
-    image.unlockFocus()
-
-    return NSCursor(image: image, hotSpot: NSPoint(x: size / 2, y: size / 2))
+    return NSCursor(image: image, hotSpot: NSPoint(x: cx, y: cy))
 }
+
+
+
 
 // MARK: - FullscreenTrackingView
 
@@ -65,7 +74,7 @@ private final class FullscreenTrackingView: NSView {
 
     var onMouseMoved: ((NSPoint) -> Void)?
 
-    private lazy var screenshotCursor = makeScreenshotCrosshairCursor()
+    var screenshotCursor: NSCursor = makeScreenshotCrosshairCursor()
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -76,6 +85,15 @@ private final class FullscreenTrackingView: NSView {
             owner: self,
             userInfo: nil
         ))
+    }
+
+    func applyCursor() {
+        screenshotCursor.set()
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: screenshotCursor)
     }
 
     override func cursorUpdate(with event: NSEvent) {
@@ -110,54 +128,71 @@ private final class FullscreenCursorWindow: NSPanel {
 
 // MARK: - CursorOverlay
 
-/// Overlay с кастомным crosshair-курсором.
-///
-/// Скрытие системного курсора: прозрачный NSCursor переустанавливается на
-/// каждый mouseMoved. Никакого NSCursor.hide/unhide — только .set().
 @MainActor
 final class CursorOverlay {
 
     private var fullscreenWindow: FullscreenCursorWindow?
-    private var currentColor: NSColor? = nil
+    private var currentColor: NSColor?
+    private var currentCursor: NSCursor = makeScreenshotCrosshairCursor()
 
     var onMouseMoved: ((NSPoint) -> Void)?
 
     // MARK: - Public API
 
-    /// Вызывается при выборе "Pick Color" в меню.
-    /// Подписывается на NSMenu.didEndTrackingNotification и устанавливает
-    /// прозрачный курсор как только меню гарантированно закрылось.
-    /// macOS восстанавливает курсор при закрытии меню, поэтому нельзя
-    /// просто вызвать .set() раньше — нужно дождаться конца трекинга.
     static func hideCursorAfterMenuCloses() {
         nonisolated(unsafe) var token: NSObjectProtocol?
         token = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification,
-            object: nil, queue: .main
+            object: nil,
+            queue: .main
         ) { _ in
-            if let t = token { NotificationCenter.default.removeObserver(t); token = nil }
+            if let t = token {
+                NotificationCenter.default.removeObserver(t)
+                token = nil
+            }
+
             DispatchQueue.main.async {
-                DispatchQueue.main.async { makeScreenshotCrosshairCursor().set() }
+                DispatchQueue.main.async {
+                    makeScreenshotCrosshairCursor().set()
+                }
             }
         }
     }
 
-        func show() {
+    func show() {
         let cursorPos = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(cursorPos) }) ?? NSScreen.main ?? NSScreen.screens[0]
+        let screen =
+            NSScreen.screens.first(where: { $0.frame.contains(cursorPos) }) ??
+            NSScreen.main ??
+            NSScreen.screens[0]
+
         ensureFullscreenWindow(on: screen)
         installGlobalMouseMonitor()
+
         guard let fw = fullscreenWindow else { return }
         fw.orderFrontRegardless()
         fw.makeKey()
-        DispatchQueue.main.async { makeScreenshotCrosshairCursor().set() }
+
+        applyCurrentCursor()
     }
 
-        func move(to position: NSPoint) { }
+    func move(to position: NSPoint) {
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(position) }) else {
+            applyCurrentCursor()
+            return
+        }
 
-        func updateColor(_ color: NSColor?) { }
+        ensureFullscreenWindow(on: screen)
+        applyCurrentCursor()
+    }
 
-        func hide() {
+    func updateColor(_ color: NSColor?) {
+        currentColor = color
+        currentCursor = makeScreenshotCrosshairCursor(contrastAgainst: color)
+        applyCurrentCursor()
+    }
+
+    func hide() {
         fullscreenWindow?.orderOut(nil)
         removeGlobalMouseMonitor()
         NSCursor.arrow.set()
@@ -165,9 +200,8 @@ final class CursorOverlay {
 
     // MARK: - Private
 
-    /// Глобальный монитор движения мыши — покрывает все дисплеи,
-    /// включая те на которых нет FullscreenTrackingView.
     private var globalMouseMonitor: Any?
+    private var spaceObserver: Any?
 
     private func installGlobalMouseMonitor() {
         guard globalMouseMonitor == nil else { return }
@@ -181,6 +215,20 @@ final class CursorOverlay {
                 self.onMouseMoved?(pos)
             }
         }
+
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            guard let fw = self.fullscreenWindow else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                fw.orderFrontRegardless()
+                fw.makeKey()
+                self.applyCurrentCursor()
+            }
+        }
     }
 
     private func removeGlobalMouseMonitor() {
@@ -188,43 +236,61 @@ final class CursorOverlay {
             NSEvent.removeMonitor(m)
             globalMouseMonitor = nil
         }
+        if let o = spaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(o)
+            spaceObserver = nil
+        }
     }
 
-
-
+    private func applyCurrentCursor() {
+        if let trackingView = fullscreenWindow?.contentView as? FullscreenTrackingView {
+            trackingView.screenshotCursor = currentCursor
+            trackingView.applyCursor()
+        } else {
+            currentCursor.set()
+        }
+    }
 
     private func ensureFullscreenWindow(on screen: NSScreen) {
         if let fw = fullscreenWindow {
             fw.setFrame(screen.frame, display: false)
+
+            if let trackingView = fw.contentView as? FullscreenTrackingView {
+                trackingView.frame = CGRect(origin: .zero, size: screen.frame.size)
+            }
+
             return
         }
+
         let fw = FullscreenCursorWindow(
             contentRect: screen.frame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        fw.isFloatingPanel    = true
-        fw.level              = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.cursorWindow)) - 2)
+        fw.isFloatingPanel = true
+        fw.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.cursorWindow)) - 2)
         fw.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        fw.isOpaque           = false
-        fw.backgroundColor    = .clear
-        fw.hasShadow          = false
-        fw.hidesOnDeactivate  = false
+        fw.isOpaque = false
+        fw.backgroundColor = .clear
+        fw.hasShadow = false
+        fw.hidesOnDeactivate = false
         fw.ignoresMouseEvents = false
-        fw.appearance         = NSAppearance(named: .darkAqua)
+        fw.appearance = NSAppearance(named: .darkAqua)
 
-        let trackingView = FullscreenTrackingView(frame: screen.frame)
+        let trackingView = FullscreenTrackingView(frame: CGRect(origin: .zero, size: screen.frame.size))
+        trackingView.autoresizingMask = [.width, .height]
         trackingView.wantsLayer = true
         trackingView.layer?.backgroundColor = CGColor.clear
+        trackingView.screenshotCursor = currentCursor
         trackingView.onMouseMoved = { [weak self] pos in
             guard let self else { return }
             self.move(to: pos)
             self.onMouseMoved?(pos)
         }
+
         fw.contentView = trackingView
         self.fullscreenWindow = fw
     }
-
 
 }

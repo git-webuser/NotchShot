@@ -102,6 +102,7 @@ struct ColorPickerHUDView: View {
         HStack(alignment: .center, spacing: 10) {
             magnifierArea
             textArea
+                .padding(.trailing, 4)
         }
         .padding(8)
         .background(HUDBackground())
