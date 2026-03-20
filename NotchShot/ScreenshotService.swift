@@ -1,8 +1,177 @@
-//
-//  ScreenshotService.swift
-//  NotchShot
-//
-//  Created by Alex on 19.03.2026.
-//
+import AppKit
+import ImageIO
 
-import Foundation
+// MARK: - ScreenshotService
+
+final class ScreenshotService {
+    private let fm = FileManager.default
+    private(set) var lastCaptureURL: URL?
+
+    private let thumbnailHUD = ScreenshotThumbnailHUD()
+
+    var onCaptured: ((URL) -> Void)?
+
+    func capture(mode: CaptureMode, delaySeconds: Int, preferredScreen: NSScreen?) {
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.runCapture(mode: mode, preferredScreen: preferredScreen)
+        }
+
+        if delaySeconds > 0 {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                deadline: .now() + .seconds(delaySeconds),
+                execute: workItem
+            )
+        } else {
+            DispatchQueue.global(qos: .userInitiated).async(execute: workItem)
+        }
+    }
+
+    private func runCapture(mode: CaptureMode, preferredScreen: NSScreen?) {
+        let downloads = ensureDownloadsDirectory()
+        let filename = makeFilename()
+        let finalURL = downloads.appendingPathComponent(filename)
+
+        let tmpURL = fm.temporaryDirectory
+            .appendingPathComponent("notchshot-\(UUID().uuidString).png")
+
+        var args: [String] = ["-x"]
+
+        switch mode {
+        case .selection:
+            args.append(contentsOf: ["-i", "-s"])
+        case .window:
+            if let windowID = FrontmostWindowResolver.frontmostWindowID() {
+                args.append(contentsOf: ["-l", String(windowID)])
+            } else {
+                args.append(contentsOf: ["-i", "-w"])
+            }
+        case .screen:
+            if let displayID = preferredScreen?.displayID {
+                args.append(contentsOf: ["-D", String(displayID)])
+            }
+        }
+
+        args.append(tmpURL.path)
+
+        let ok = runScreencapture(arguments: args)
+        guard ok else { return }
+        guard fm.fileExists(atPath: tmpURL.path) else { return }
+
+        do {
+            if fm.fileExists(atPath: finalURL.path) {
+                try fm.removeItem(at: finalURL)
+            }
+            try fm.moveItem(at: tmpURL, to: finalURL)
+            lastCaptureURL = finalURL
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                ScreenshotSoundPlayer.play()
+                NSPasteboard.general.writeImage(at: finalURL)
+                self.thumbnailHUD.show(imageURL: finalURL, on: preferredScreen)
+                self.onCaptured?(finalURL)
+            }
+        } catch {
+            lastCaptureURL = tmpURL
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                ScreenshotSoundPlayer.play()
+                NSPasteboard.general.writeImage(at: tmpURL)
+                self.thumbnailHUD.show(imageURL: tmpURL, on: preferredScreen)
+                self.onCaptured?(tmpURL)
+            }
+        }
+    }
+
+    private func runScreencapture(arguments: [String]) -> Bool {
+        autoreleasepool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            process.arguments = arguments
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            } catch {
+                return false
+            }
+        }
+    }
+
+    private func ensureDownloadsDirectory() -> URL {
+        fm.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? fm.homeDirectoryForCurrentUser
+    }
+
+    private func makeFilename() -> String {
+        let c = Calendar(identifier: .gregorian)
+        let d = c.dateComponents(in: .current, from: Date())
+        return String(
+            format: "Screenshot %04d-%02d-%02d_%02d-%02d-%02d-%03d.png",
+            d.year ?? 0, d.month ?? 0, d.day ?? 0,
+            d.hour ?? 0, d.minute ?? 0, d.second ?? 0,
+            (d.nanosecond ?? 0) / 1_000_000
+        )
+    }
+}
+
+// MARK: - FrontmostWindowResolver
+
+private enum FrontmostWindowResolver {
+    static func frontmostWindowID() -> CGWindowID? {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        let pid = app.processIdentifier
+
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+                as? [[String: Any]] else { return nil }
+
+        for info in infoList {
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+                  ownerPID == pid else { continue }
+            guard let layer = info[kCGWindowLayer as String] as? Int,
+                  layer == 0 else { continue }
+            guard let isOnscreen = info[kCGWindowIsOnscreen as String] as? Bool,
+                  isOnscreen else { continue }
+            guard let windowNumber = info[kCGWindowNumber as String] as? UInt32
+            else { continue }
+
+            if let bounds = info[kCGWindowBounds as String] as? [String: Any] {
+                let wAny = bounds["Width"]
+                let hAny = bounds["Height"]
+                let w: Double = (wAny as? Double) ?? Double((wAny as? CGFloat) ?? 0)
+                let h: Double = (hAny as? Double) ?? Double((hAny as? CGFloat) ?? 0)
+                if w <= 0 || h <= 0 { continue }
+                if (w < 60 && h < 60) || (w * h < 3600) { continue }
+            }
+
+            return CGWindowID(windowNumber)
+        }
+        return nil
+    }
+}
+
+// MARK: - ScreenshotSoundPlayer
+
+enum ScreenshotSoundPlayer {
+    static func play() {
+        let candidates: [String] = [
+            "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/Screen Capture.aiff",
+            "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/system/screenshot.aiff",
+            "/System/Library/Library/Sounds/Screen Capture.aiff",
+            "/System/Library/Sounds/Glass.aiff"
+        ]
+        for path in candidates where FileManager.default.fileExists(atPath: path) {
+            if let sound = NSSound(contentsOfFile: path, byReference: true) {
+                sound.play()
+                return
+            }
+        }
+        NSSound.beep()
+    }
+}

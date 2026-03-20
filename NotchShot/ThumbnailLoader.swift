@@ -1,8 +1,41 @@
-//
-//  ThumbnailLoader.swift
-//  NotchShot
-//
-//  Created by Alex on 20.03.2026.
-//
+import AppKit
+import Combine
 
-import Foundation
+// MARK: - ThumbnailLoader
+
+@MainActor
+final class ThumbnailLoader: ObservableObject {
+    @Published var image: NSImage?
+
+    private var loadedURL: URL?
+    private var loadTask: Task<Void, Never>?
+
+    deinit { loadTask?.cancel() }
+
+    func load(imageURL: URL, maxPixelSize: CGFloat = 200) {
+        guard loadedURL != imageURL else { return }
+        image = nil
+        loadedURL = imageURL
+        loadTask?.cancel()
+        let url = imageURL
+
+        loadTask = Task { @MainActor in
+            let result: NSImage? = await Task.detached(priority: .userInitiated) {
+                autoreleasepool {
+                    guard
+                        let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+                        let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                            kCGImageSourceCreateThumbnailFromImageAlways: true,
+                            kCGImageSourceCreateThumbnailWithTransform: true,
+                            kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelSize)
+                        ] as CFDictionary)
+                    else { return nil }
+                    return NSImage(cgImage: cg, size: .zero)
+                }
+            }.value
+
+            guard !Task.isCancelled, self.loadedURL == url else { return }
+            image = result
+        }
+    }
+}

@@ -289,7 +289,7 @@ final class ColorPickerHUD {
         moveToPosition(cursorPosition)
     }
 
-    func showSuccess(color: NSColor, on screen: NSScreen?, autoHideAfter delay: TimeInterval = 2.0) {
+    func showSuccess(color: NSColor, on screen: NSScreen?, autoHideAfter delay: TimeInterval) {
 
         currentPhase = .success(color)
         refreshContent()
@@ -357,19 +357,6 @@ final class ColorPickerHUD {
         }
 
         return NSRect(x: x, y: y, width: size.width, height: size.height)
-    }
-
-    private func frameBottomRight(on screen: NSScreen?) -> NSRect? {
-        guard let screen else { return nil }
-        let vf = screen.visibleFrame
-        let margin: CGFloat = 18
-        let size = CGSize(width: 240, height: 62)
-        return NSRect(
-            x: vf.maxX - margin - size.width,
-            y: vf.minY + margin,
-            width: size.width,
-            height: size.height
-        )
     }
 
     // MARK: - Panel management

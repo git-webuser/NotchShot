@@ -16,4 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Страховка: возвращаем курсор если приложение завершилось во время сэмплинга
         CGDisplayShowCursor(CGMainDisplayID())
     }
+    
+    @objc func openSettings(_ sender: Any?) {
+        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+    }
 }

@@ -81,6 +81,23 @@ struct NotchMetrics {
     /// Один физический пиксель в логических единицах.
     var pixel: CGFloat { 1.0 / max(scale, 1) }
 
+    // MARK: - Timer cell helpers
+
+    /// Ширина цифровой части таймера для заданного shortLabel.
+    func timerDigitsWidth(for shortLabel: String?) -> CGFloat {
+        switch shortLabel?.count ?? 0 {
+        case 0: return 0
+        case 1: return 8
+        default: return timerValueWidth
+        }
+    }
+
+    /// Итоговая ширина ячейки таймера.
+    func timerCellWidth(for shortLabel: String?) -> CGFloat {
+        guard shortLabel != nil else { return cellWidth }
+        return iconSize + timerIconToValueGap + timerDigitsWidth(for: shortLabel) + timerTrailingInsetWithValue
+    }
+
     // MARK: - Factory
 
     static func from(screen: NSScreen) -> NotchMetrics {
@@ -123,10 +140,7 @@ extension NSScreen {
     var notchGapWidth: CGFloat {
         guard #available(macOS 12.0, *) else { return 0 }
         let safeInsets = safeAreaInsets
-        // На MacBook с нотчем top-inset ненулевой.
         guard safeInsets.top > 0 else { return 0 }
-        // Ширина нотча — разница между полным фреймом и видимой областью сверху.
-        // Apple не предоставляет прямого API, поэтому используем auxiliaryTopLeftArea / auxiliaryTopRightArea.
         if let leftRect = auxiliaryTopLeftArea, let rightRect = auxiliaryTopRightArea {
             let totalWidth = frame.width
             let usable = leftRect.width + rightRect.width

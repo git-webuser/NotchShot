@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 
-// MARK: - Capture Mode / Delay (unchanged enums)
+// MARK: - CaptureMode
 
 enum CaptureMode: CaseIterable, Equatable {
     case selection
@@ -12,53 +12,57 @@ enum CaptureMode: CaseIterable, Equatable {
     var title: String {
         switch self {
         case .selection: return "Selection"
-        case .window: return "Window"
-        case .screen: return "Entire Screen"
+        case .window:    return "Window"
+        case .screen:    return "Entire Screen"
         }
     }
 
     var icon: String {
         switch self {
         case .selection: return "rectangle.dashed"
-        case .window: return "macwindow"
-        case .screen: return "menubar.dock.rectangle"
+        case .window:    return "macwindow"
+        case .screen:    return "menubar.dock.rectangle"
         }
     }
 }
+
+// MARK: - CaptureDelay
 
 enum CaptureDelay: CaseIterable, Equatable {
     case off, s3, s5, s10
 
     var seconds: Int {
         switch self {
-        case .off: return 0
-        case .s3: return 3
-        case .s5: return 5
-        case .s10: return 10
+        case .off:  return 0
+        case .s3:   return 3
+        case .s5:   return 5
+        case .s10:  return 10
         }
     }
 
     var title: String {
         switch self {
-        case .off: return "No Delay"
-        case .s3: return "3 Seconds"
-        case .s5: return "5 Seconds"
-        case .s10: return "10 Seconds"
+        case .off:  return "No Delay"
+        case .s3:   return "3 Seconds"
+        case .s5:   return "5 Seconds"
+        case .s10:  return "10 Seconds"
         }
     }
 
     var shortLabel: String? {
         switch self {
-        case .off: return nil
-        case .s3: return "3"
-        case .s5: return "5"
-        case .s10: return "10"
+        case .off:  return nil
+        case .s3:   return "3"
+        case .s5:   return "5"
+        case .s10:  return "10"
         }
     }
 }
 
+// MARK: - NotchPanelModel
+
 final class NotchPanelModel: ObservableObject {
-    @Published var mode: CaptureMode = .selection
+    @Published var mode: CaptureMode  = .selection
     @Published var delay: CaptureDelay = .off
 }
 
@@ -90,10 +94,10 @@ struct NotchPanelView: View {
         .allowsHitTesting(interaction.isEnabled)
         .animation(nil, value: interaction.isEnabled)
         .onChange(of: model.delay) { _, _ in onModeDelayChanged() }
-        .onChange(of: model.mode) { _, _ in onModeDelayChanged() }
+        .onChange(of: model.mode)  { _, _ in onModeDelayChanged() }
     }
 
-    // MARK: Notch layout
+    // MARK: - Notch layout
 
     private var notchLayout: some View {
         GeometryReader { geo in
@@ -129,7 +133,7 @@ struct NotchPanelView: View {
         }
     }
 
-    // MARK: No-notch layout
+    // MARK: - No-notch layout
 
     private var noNotchLayout: some View {
         ZStack {
@@ -168,25 +172,17 @@ struct NotchPanelView: View {
             size: 14,
             weight: .semibold
         ) {
-            Button {
-                model.mode = .selection
-            } label: {
-                Label("Selection", systemImage: CaptureMode.selection.icon)
+            Button { model.mode = .selection } label: {
+                Label("Selection",    systemImage: CaptureMode.selection.icon)
             }
-            Button {
-                model.mode = .window
-            } label: {
-                Label("Window", systemImage: CaptureMode.window.icon)
+            Button { model.mode = .window } label: {
+                Label("Window",       systemImage: CaptureMode.window.icon)
             }
-            Button {
-                model.mode = .screen
-            } label: {
+            Button { model.mode = .screen } label: {
                 Label("Entire Screen", systemImage: CaptureMode.screen.icon)
             }
             Divider()
-            Button {
-                onPickColor()
-            } label: {
+            Button { onPickColor() } label: {
                 Label("Pick Color", systemImage: "eyedropper")
             }
         }
@@ -194,16 +190,13 @@ struct NotchPanelView: View {
     }
 
     private var timerMenuCell: some View {
-        let digitCount = timerDigitCount
-        let digitsWidth = timerDigitsWidth(for: digitCount)
-        let hasValue = digitCount > 0
-
+        let shortLabel = model.delay.shortLabel
         return PanelTimerMenuButton(
             model: model,
             metrics: metrics,
-            digitsWidth: digitsWidth,
-            hasValue: hasValue,
-            cellWidth: timerCellWidth(digitsWidth: digitsWidth, hasValue: hasValue)
+            digitsWidth: metrics.timerDigitsWidth(for: shortLabel),
+            hasValue: shortLabel != nil,
+            cellWidth: metrics.timerCellWidth(for: shortLabel)
         )
         .animation(nil, value: model.delay)
     }
@@ -226,12 +219,10 @@ struct NotchPanelView: View {
             weight: .semibold
         ) {
             Button("Settings") {
-                NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+                NSApp.sendAction(#selector(AppDelegate.openSettings), to: nil, from: nil)
             }
             Divider()
-            Button("Quit NotchShot") {
-                NSApp.terminate(nil)
-            }
+            Button("Quit NotchShot") { NSApp.terminate(nil) }
         }
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
@@ -245,23 +236,6 @@ struct NotchPanelView: View {
 
     // MARK: - Helpers
 
-    private func timerDigitsWidth(for digitCount: Int) -> CGFloat {
-        switch digitCount {
-        case 0: return 0
-        case 1: return 8
-        default: return metrics.timerValueWidth
-        }
-    }
-
-    private var timerDigitCount: Int {
-        model.delay.shortLabel?.count ?? 0
-    }
-
-    private func timerCellWidth(digitsWidth: CGFloat, hasValue: Bool) -> CGFloat {
-        guard hasValue else { return metrics.cellWidth }
-        return metrics.iconSize + metrics.timerIconToValueGap + digitsWidth + metrics.timerTrailingInsetWithValue
-    }
-
     private var contentOpacity: Double {
         let t = interaction.contentVisibility
         if t <= 0 { return 0 }
@@ -269,66 +243,7 @@ struct NotchPanelView: View {
         return max(0, (t - 0.15) / 0.85)
     }
 
-    private var panelScale: CGFloat { CGFloat(0.97 + 0.03 * interaction.contentVisibility) }
-    private var panelSpring: Animation { .spring(response: 0.28, dampingFraction: 0.86) }
     private var contentFade: Animation { .easeOut(duration: 0.16) }
-}
-
-// MARK: - PanelMenuButton (Menu + hover/active)
-
-struct PanelMenuButton<MenuContent: View>: View {
-    let systemName: String
-    let size: CGFloat
-    let weight: Font.Weight
-    @ViewBuilder let menuContent: () -> MenuContent
-
-    @State private var isHovered    = false
-    @State private var isPressed    = false
-    @State private var isMenuOpen   = false
-
-    var body: some View {
-        Menu {
-            menuContent()
-                .onAppear  { isMenuOpen = true  }
-                .onDisappear { isMenuOpen = false }
-        } label: {
-            Image(systemName: systemName)
-                .font(.system(size: size, weight: weight))
-                .foregroundStyle(foregroundColor)
-                .frame(width: 24, height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(backgroundFill)
-                )
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .scaleEffect(isPressed ? 0.88 : 1.0)
-        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
-        .onHover { isHovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded   { _ in isPressed = false }
-        )
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
-        .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
-    }
-
-    private var foregroundColor: Color {
-        if isMenuOpen { return .white }
-        if isPressed  { return .white }
-        if isHovered  { return .white }
-        return .white.opacity(0.8)
-    }
-
-    private var backgroundFill: Color {
-        if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.20) }
-        if isHovered  { return .white.opacity(0.10) }
-        return .clear
-    }
 }
 
 // MARK: - PanelTimerMenuButton
@@ -349,7 +264,7 @@ private struct PanelTimerMenuButton: View {
             ForEach(CaptureDelay.allCases, id: \.self) { delay in
                 Button(delay.title) { model.delay = delay }
             }
-            .onAppear   { isMenuOpen = true  }
+            .onAppear    { isMenuOpen = true  }
             .onDisappear { isMenuOpen = false }
         } label: {
             HStack(spacing: metrics.timerIconToValueGap) {
