@@ -222,8 +222,10 @@ final class CursorOverlay {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            guard let fw = self.fullscreenWindow else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard let fw = self.fullscreenWindow else { return }
                 fw.orderFrontRegardless()
                 fw.makeKey()
                 self.applyCurrentCursor()

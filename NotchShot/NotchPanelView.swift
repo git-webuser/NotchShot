@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 
+
 // MARK: - CaptureMode
 
 enum CaptureMode: CaseIterable, Equatable {

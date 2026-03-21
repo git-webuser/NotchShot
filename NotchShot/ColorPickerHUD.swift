@@ -294,7 +294,7 @@ final class ColorPickerHUD {
         currentPhase = .success(color)
         refreshContent()
 
-                let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
+        let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
         hideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }

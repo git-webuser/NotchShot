@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import Combine
 
 // MARK: - ScreenshotThumbnailHUD
 

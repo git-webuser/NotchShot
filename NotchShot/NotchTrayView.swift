@@ -1,7 +1,5 @@
 import SwiftUI
 import AppKit
-import Combine
-import UniformTypeIdentifiers
 
 
 // MARK: - NotchTrayView
