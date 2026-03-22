@@ -9,7 +9,17 @@ struct NotchTrayView: View {
     @ObservedObject var trayModel: NotchTrayModel
     let onBack: () -> Void
 
-    @State private var scheme: ColorSchemeType = .hex
+    @State private var scheme:         ColorSchemeType = .hex
+    @State private var contentOpacity: Double = 1.0
+
+    // Fade out content, then call onBack
+    private func handleBack() {
+        withAnimation(.easeIn(duration: 0.16)) { contentOpacity = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            contentOpacity = 1.0
+            onBack()
+        }
+    }
 
     private let panelRounding: CGFloat = 15  // clearance for panel corner radius
     private let innerInset:    CGFloat = 19  // inset from panel edge to first cell
@@ -31,6 +41,7 @@ struct NotchTrayView: View {
             }
         }
         .frame(height: trayHeight)
+        .opacity(contentOpacity)
     }
 
     private var notchLayout: some View {
@@ -153,7 +164,7 @@ struct NotchTrayView: View {
     // MARK: - Buttons
 
     private var backButton: some View {
-        PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: onBack)
+        PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: handleBack)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
 
@@ -163,7 +174,7 @@ struct NotchTrayView: View {
             size: 13,
             weight: .regular,
             isActive: true,
-            action: onBack
+            action: handleBack
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
@@ -271,7 +282,7 @@ private struct TrayColorCell: View {
                 ZStack {
                     Text(scheme.convert(item.color))
                         .opacity(isCopied ? 0 : 1)
-                    Text("Copied")
+                    Text("Copied!")
                         .opacity(isCopied ? 1 : 0)
                 }
                 .font(.system(size: 11, weight: .regular, design: .default))
@@ -406,4 +417,3 @@ private struct TrayScreenshotCell: View {
         .task(id: shot.url) { loader.load(imageURL: shot.url) }
     }
 }
-
