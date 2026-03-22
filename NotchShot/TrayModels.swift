@@ -53,6 +53,9 @@ enum ColorSchemeType: CaseIterable, Equatable {
 final class NotchTrayModel: ObservableObject {
     @Published private(set) var items: [TrayItem] = []
 
+    // Hardcoded for now, will move to Settings later
+    private let maxItems = 20
+
     var colors: [TrayColor] {
         items.compactMap {
             if case .color(let c) = $0 { return c } else { return nil }
@@ -85,6 +88,15 @@ final class NotchTrayModel: ObservableObject {
     }
 
     private func trim() {
-        if items.count > 12 { items = Array(items.prefix(12)) }
+        // When over limit, remove oldest items from the tail.
+        // For screenshots, also delete the file from disk.
+        guard items.count > maxItems else { return }
+        let excess = items.suffix(from: maxItems)
+        for item in excess {
+            if case .screenshot(let s) = item {
+                try? FileManager.default.removeItem(at: s.url)
+            }
+        }
+        items = Array(items.prefix(maxItems))
     }
 }

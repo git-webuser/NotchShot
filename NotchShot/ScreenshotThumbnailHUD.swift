@@ -9,6 +9,9 @@ final class ScreenshotThumbnailHUD {
 
     private let size = CGSize(width: 220, height: 150)
 
+    /// Called when user taps the thumbnail — intended to open tray.
+    var onTapped: (() -> Void)?
+
     func show(imageURL: URL, on screen: NSScreen?) {
         DispatchQueue.main.async {
             self.dismissWorkItem?.cancel()
@@ -27,6 +30,10 @@ final class ScreenshotThumbnailHUD {
             let view = ScreenshotThumbnailView(
                 imageURL: imageURL,
                 onDismiss: { [weak self] in self?.hide(animated: true) },
+                onTapped: { [weak self] in
+                    self?.hide(animated: true)
+                    self?.onTapped?()
+                },
                 onHoverChanged: { [weak self] hovering in
                     guard let self else { return }
                     if hovering {
@@ -120,6 +127,7 @@ final class ScreenshotThumbnailHUD {
 struct ScreenshotThumbnailView: View {
     let imageURL: URL
     let onDismiss: () -> Void
+    let onTapped: () -> Void
     let onHoverChanged: (Bool) -> Void
 
     @StateObject private var loader = ThumbnailLoader()
@@ -164,7 +172,7 @@ struct ScreenshotThumbnailView: View {
         .scaleEffect(scaleForDrag)
         .gesture(dismissDragGesture)
         .onTapGesture {
-            NSWorkspace.shared.activateFileViewerSelecting([imageURL])
+            onTapped()
         }
         .onDrag {
             NSItemProvider(contentsOf: imageURL) ?? NSItemProvider()

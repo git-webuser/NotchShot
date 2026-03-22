@@ -9,7 +9,17 @@ final class ScreenshotService {
 
     private let thumbnailHUD = ScreenshotThumbnailHUD()
 
+    /// Called when a capture completes successfully. Passes the final file URL.
     var onCaptured: ((URL) -> Void)?
+
+    /// Called when user taps the thumbnail HUD — should open tray.
+    var onThumbnailTapped: (() -> Void)?
+
+    init() {
+        thumbnailHUD.onTapped = { [weak self] in
+            self?.onThumbnailTapped?()
+        }
+    }
 
     func capture(mode: CaptureMode, delaySeconds: Int, preferredScreen: NSScreen?) {
         let workItem = DispatchWorkItem { [weak self] in
@@ -27,10 +37,9 @@ final class ScreenshotService {
     }
 
     private func runCapture(mode: CaptureMode, preferredScreen: NSScreen?) {
-        let downloads = ensureDownloadsDirectory()
-        let filename = makeFilename()
-        let finalURL = downloads.appendingPathComponent(filename)
-
+        // screencapture (a child process) cannot write to sandbox-protected directories
+        // like Downloads directly. We write to tmp first, then move via FileManager
+        // which has the app's full entitlements including Downloads access.
         let tmpURL = fm.temporaryDirectory
             .appendingPathComponent("notchshot-\(UUID().uuidString).png")
 
@@ -54,16 +63,19 @@ final class ScreenshotService {
         args.append(tmpURL.path)
 
         let ok = runScreencapture(arguments: args)
-        guard ok else { return }
-        guard fm.fileExists(atPath: tmpURL.path) else { return }
+        guard ok, fm.fileExists(atPath: tmpURL.path) else { return }
+
+        // Move tmp → Downloads with the user-facing filename
+        let outputDir = saveDirectory()
+        let finalURL = outputDir.appendingPathComponent(makeFilename())
 
         do {
             if fm.fileExists(atPath: finalURL.path) {
                 try fm.removeItem(at: finalURL)
             }
             try fm.moveItem(at: tmpURL, to: finalURL)
-            lastCaptureURL = finalURL
 
+            lastCaptureURL = finalURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 ScreenshotSoundPlayer.play()
@@ -72,6 +84,7 @@ final class ScreenshotService {
                 self.onCaptured?(finalURL)
             }
         } catch {
+            // Move failed — use tmp path as fallback (file exists, just not renamed)
             lastCaptureURL = tmpURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -103,19 +116,26 @@ final class ScreenshotService {
         }
     }
 
-    private func ensureDownloadsDirectory() -> URL {
+    /// Default save location is Downloads. Will be user-configurable via Settings later.
+    private func saveDirectory() -> URL {
         fm.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? fm.homeDirectoryForCurrentUser
     }
 
     private func makeFilename() -> String {
-        let c = Calendar(identifier: .gregorian)
-        let d = c.dateComponents(in: .current, from: Date())
+        let cal = Calendar(identifier: .gregorian)
+        let d = cal.dateComponents(in: .current, from: Date())
+        let months = ["JAN","FEB","MAR","APR","MAY","JUN",
+                      "JUL","AUG","SEP","OCT","NOV","DEC"]
+        let mon = months[max(0, min((d.month ?? 1) - 1, 11))]
+        // Format: MAR·25-19·34·55  (interpunct U+00B7 as time separator)
         return String(
-            format: "Screenshot %04d-%02d-%02d_%02d-%02d-%02d-%03d.png",
-            d.year ?? 0, d.month ?? 0, d.day ?? 0,
-            d.hour ?? 0, d.minute ?? 0, d.second ?? 0,
-            (d.nanosecond ?? 0) / 1_000_000
+            format: "%@\u{00B7}%02d-%02d\u{00B7}%02d\u{00B7}%02d.png",
+            mon,
+            d.day ?? 0,
+            d.hour ?? 0,
+            d.minute ?? 0,
+            d.second ?? 0
         )
     }
 }

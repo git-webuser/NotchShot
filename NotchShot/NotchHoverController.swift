@@ -11,7 +11,13 @@ final class NotchHoverController: NSObject {
     private var hotKeyRef: EventHotKeyRef?
     private var hotKeyHandlerRef: EventHandlerRef?
 
-    // Control + Option + Command + N
+    // Registered hotkey refs for capture actions
+    private var hotKeyRefSelection: EventHotKeyRef?
+    private var hotKeyRefFullscreen: EventHotKeyRef?
+    private var hotKeyRefWindow: EventHotKeyRef?
+    private var hotKeyRefColor: EventHotKeyRef?
+
+    // Control + Option + Command + N  →  toggle panel
     private let hotKeyCode: UInt32 = UInt32(kVK_ANSI_N)
     private let hotKeyModifiers: UInt32 = UInt32(controlKey | optionKey | cmdKey)
 
@@ -95,25 +101,37 @@ final class NotchHoverController: NSObject {
         )
         guard handlerStatus == noErr else { return }
 
-        let hotKeyID = EventHotKeyID(signature: fourCharCode("NTSH"), id: 1)
-        let registerStatus = RegisterEventHotKey(
-            hotKeyCode,
-            hotKeyModifiers,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
-        if registerStatus != noErr {
-            hotKeyRef = nil
-        }
+        let mods = UInt32(controlKey | optionKey | cmdKey)
+        let sig = fourCharCode("NTSH")
+
+        // id=1  Ctrl+Opt+Cmd+N  — toggle panel
+        registerHotKey(code: UInt32(kVK_ANSI_N), mods: mods, id: 1, sig: sig, ref: &hotKeyRef)
+        // id=2  Ctrl+Opt+Cmd+R  — selection screenshot
+        registerHotKey(code: UInt32(kVK_ANSI_R), mods: mods, id: 2, sig: sig, ref: &hotKeyRefSelection)
+        // id=3  Ctrl+Opt+Cmd+G  — fullscreen screenshot
+        registerHotKey(code: UInt32(kVK_ANSI_G), mods: mods, id: 3, sig: sig, ref: &hotKeyRefFullscreen)
+        // id=4  Ctrl+Opt+Cmd+B  — window screenshot
+        registerHotKey(code: UInt32(kVK_ANSI_B), mods: mods, id: 4, sig: sig, ref: &hotKeyRefWindow)
+        // id=5  Ctrl+Opt+Cmd+C  — pick color
+        registerHotKey(code: UInt32(kVK_ANSI_C), mods: mods, id: 5, sig: sig, ref: &hotKeyRefColor)
+    }
+
+    private func registerHotKey(code: UInt32, mods: UInt32, id: UInt32, sig: OSType, ref: inout EventHotKeyRef?) {
+        let hotKeyID = EventHotKeyID(signature: sig, id: id)
+        let status = RegisterEventHotKey(code, mods, hotKeyID, GetApplicationEventTarget(), 0, &ref)
+        if status != noErr { ref = nil }
     }
 
     private func uninstallHotKey() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
+        for ref in [hotKeyRef, hotKeyRefSelection, hotKeyRefFullscreen, hotKeyRefWindow, hotKeyRefColor].compactMap({ $0 }) {
+            UnregisterEventHotKey(ref)
         }
+        hotKeyRef = nil
+        hotKeyRefSelection = nil
+        hotKeyRefFullscreen = nil
+        hotKeyRefWindow = nil
+        hotKeyRefColor = nil
+
         if let hotKeyHandlerRef {
             RemoveEventHandler(hotKeyHandlerRef)
             self.hotKeyHandlerRef = nil
@@ -121,9 +139,48 @@ final class NotchHoverController: NSObject {
     }
 
     private func handleHotKey(_ hotKeyID: EventHotKeyID) {
-        guard hotKeyID.id == 1 else { return }
         let screen = preferredScreenForOpen()
-        panel.toggleAnimated(on: screen)
+        switch hotKeyID.id {
+        case 1:
+            // Toggle panel
+            panel.toggleAnimated(on: screen)
+        case 2:
+            // Selection screenshot — show panel briefly then capture
+            triggerCapture(mode: .selection, on: screen)
+        case 3:
+            // Fullscreen screenshot
+            triggerCapture(mode: .screen, on: screen)
+        case 4:
+            // Window screenshot
+            triggerCapture(mode: .window, on: screen)
+        case 5:
+            // Pick color — open panel then invoke pick color
+            triggerPickColor(on: screen)
+        default:
+            break
+        }
+    }
+
+    private func triggerCapture(mode: CaptureMode, on screen: NSScreen) {
+        // If panel is visible, hide it first, then capture
+        if panel.isVisible {
+            panel.hideAnimated { [weak self] in
+                self?.panel.captureDirectly(mode: mode, on: screen)
+            }
+        } else {
+            panel.captureDirectly(mode: mode, on: screen)
+        }
+    }
+
+    private func triggerPickColor(on screen: NSScreen) {
+        if panel.isVisible {
+            panel.pickColorDirectly()
+        } else {
+            panel.showAnimated(on: screen)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.panel.pickColorDirectly()
+            }
+        }
     }
 
     private func installEventTap() {

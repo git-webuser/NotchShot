@@ -11,14 +11,12 @@ struct NotchTrayView: View {
 
     @State private var scheme: ColorSchemeType = .hex
 
-    // Figma viewBox: 536×89. Верхняя часть (нотч) = 34pt, нижняя = 55pt.
-    private var scrollPadH:   CGFloat { 16 }
-    private var scrollPadTop: CGFloat { 8  }
-    private var scrollPadBot: CGFloat { 16 }
-    private var cellH:        CGFloat { 36 }
-    private var bottomRadius: CGFloat { 16 }
+    private let scrollPadH:    CGFloat = 18
+    private let cellH:         CGFloat = 32
+    private let cellSpacing:   CGFloat = 8
+    private let badgeOffset:   CGFloat = 4
+    private let padTop:        CGFloat = 3
 
-    // Высота нижней части = 89 - 34 = 55pt (из Figma)
     var scrollRowHeight: CGFloat { 55 }
     var trayHeight:      CGFloat { metrics.panelHeight + scrollRowHeight }
 
@@ -33,8 +31,6 @@ struct NotchTrayView: View {
         .frame(height: trayHeight)
     }
 
-    // MARK: - Notch layout
-
     private var notchLayout: some View {
         GeometryReader { geo in
             let totalWidth = geo.size.width
@@ -42,7 +38,6 @@ struct NotchTrayView: View {
 
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
-                    // Верхний ряд — кнопки
                     HStack(spacing: 0) {
                         HStack(spacing: metrics.gap) {
                             backButton
@@ -62,17 +57,12 @@ struct NotchTrayView: View {
                     }
                     .frame(height: metrics.panelHeight)
 
-                    // Нижний ряд — скролл
-                    unifiedScrollView
-                        .padding(.horizontal, scrollPadH)
-                        .padding(.top, scrollPadTop)
-                        .padding(.bottom, scrollPadBot)
+                    bottomContent
+                        .frame(height: scrollRowHeight)
                 }
             }
         }
     }
-
-    // MARK: - No-notch layout
 
     private var noNotchLayout: some View {
         ZStack(alignment: .top) {
@@ -87,15 +77,68 @@ struct NotchTrayView: View {
                 .padding(.horizontal, scrollPadH)
                 .frame(height: metrics.panelHeight)
 
-                unifiedScrollView
-                    .padding(.horizontal, scrollPadH)
-                    .padding(.top, scrollPadTop)
-                    .padding(.bottom, scrollPadBot)
+                bottomContent
+                    .frame(height: scrollRowHeight)
             }
         }
     }
 
-    // MARK: - Buttons
+    @ViewBuilder
+    private var bottomContent: some View {
+        if trayModel.items.isEmpty {
+            emptyState
+        } else {
+            scrollContent
+        }
+    }
+
+    private var emptyState: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.3))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Nothing Here Yet")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.4))
+                Text("Screenshots and colors you capture will appear here.")
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.25))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var scrollContent: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: cellSpacing) {
+                ForEach(trayModel.items) { item in
+                    switch item {
+                    case .screenshot(let shot):
+                        TrayScreenshotCell(
+                            shot: shot,
+                            height: cellH,
+                            cornerRadius: metrics.buttonRadius,
+                            onRemove: { trayModel.remove(id: shot.id) }
+                        )
+                    case .color(let c):
+                        TrayColorCell(
+                            item: c,
+                            scheme: scheme,
+                            height: cellH,
+                            cornerRadius: metrics.buttonRadius,
+                            onRemove: { trayModel.remove(id: c.id) }
+                        )
+                    }
+                }
+            }
+            .padding(.leading, scrollPadH)
+            .padding(.trailing, scrollPadH)
+            .padding(.top, badgeOffset)
+        }
+        .padding(.top, padTop - badgeOffset)
+    }
 
     private var backButton: some View {
         PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: onBack)
@@ -108,7 +151,7 @@ struct NotchTrayView: View {
             size: 13,
             weight: .regular,
             isActive: true,
-            action: {}
+            action: onBack
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
@@ -127,8 +170,6 @@ struct NotchTrayView: View {
         }
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
-
-    // MARK: - Scheme menu
 
     private var schemeMenuWidth: CGFloat { 68 }
 
@@ -158,32 +199,26 @@ struct NotchTrayView: View {
         .menuIndicator(.hidden)
         .frame(width: schemeMenuWidth)
     }
+}
 
-    // MARK: - Scroll
+// MARK: - Delete Badge
 
-    private var unifiedScrollView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(trayModel.items) { item in
-                    switch item {
-                    case .screenshot(let shot):
-                        TrayScreenshotCell(
-                            shot: shot,
-                            height: cellH,
-                            cornerRadius: metrics.buttonRadius,
-                            onRemove: { trayModel.remove(id: shot.id) }
-                        )
-                    case .color(let c):
-                        TrayColorCell(
-                            item: c,
-                            scheme: scheme,
-                            height: cellH,
-                            cornerRadius: metrics.buttonRadius
-                        )
-                    }
-                }
-            }
+private struct TrayDeleteBadge: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(
+                    Color(red: 0.125, green: 0.125, blue: 0.125), // #202020 — xmark
+                    Color(white: 0.914)                            // #E9E9E9 — circle
+                )
+                .font(.system(size: 16))
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.25), lineWidth: 1))
         }
+        .buttonStyle(.plain)
+        .frame(width: 16, height: 16)
     }
 }
 
@@ -194,31 +229,67 @@ private struct TrayColorCell: View {
     let scheme: ColorSchemeType
     let height: CGFloat
     let cornerRadius: CGFloat
+    let onRemove: () -> Void
 
     @State private var isHovered = false
     @State private var isPressed = false
+    @State private var isRemoving = false
 
     var body: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color(nsColor: item.color))
-            .frame(width: height, height: height)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
-            )
-            .scaleEffect(isPressed ? 0.88 : (isHovered ? 1.06 : 1.0))
-            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
-            .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
-            .onHover { isHovered = $0 }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in isPressed = true }
-                    .onEnded { _ in
-                        isPressed = false
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(scheme.convert(item.color), forType: .string)
+        VStack(spacing: 1) {
+            // Swatch scales; badge is inside overlay so it doesn't scale
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color(nsColor: item.color))
+                .frame(width: height, height: height)
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                )
+                .scaleEffect(isRemoving ? 0.6 : (isPressed ? 0.88 : (isHovered ? 1.0625 : 1.0)))
+                .overlay(alignment: .topTrailing) {
+                    TrayDeleteBadge {
+                        withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
                     }
-            )
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .offset(x: 4, y: -4)
+                }
+
+            // Label doesn't scale
+            Text(scheme.convert(item.color))
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .textCase(nil)
+                .foregroundStyle(.white)
+                .fixedSize()
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.black.opacity(0.65))
+                )
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(false)
+                .frame(height: 16)
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+        .padding(.top, -8)
+        .padding(.bottom, -16)
+        .opacity(isRemoving ? 0 : 1)
+        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
+        .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+        .animation(.easeIn(duration: 0.16), value: isRemoving)
+        .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in
+                    isPressed = false
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(scheme.convert(item.color), forType: .string)
+                }
+        )
     }
 }
 
@@ -233,41 +304,80 @@ private struct TrayScreenshotCell: View {
     @StateObject private var loader = ThumbnailLoader()
     @State private var isHovered = false
     @State private var isPressed = false
+    @State private var isRemoving = false
 
     private var width: CGFloat { height * 1.6 }
 
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
-                )
+    private var displayName: String {
+        shot.url.deletingPathExtension().lastPathComponent
+    }
 
-            if let img = loader.image {
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: width, height: height)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            } else {
-                Image(systemName: "photo")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.5))
+    var body: some View {
+        VStack(spacing: 1) {
+            // Thumbnail scales; badge overlay is applied after scaleEffect so it doesn't scale
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .stroke(Color.white.opacity(isHovered ? 0.35 : 0.12), lineWidth: 1)
+                    )
+
+                if let img = loader.image {
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: width, height: height)
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
             }
+            .frame(width: width, height: height)
+            .scaleEffect(isRemoving ? 0.6 : (isPressed ? 0.88 : (isHovered ? 1.0625 : 1.0)))
+            .overlay(alignment: .topTrailing) {
+                TrayDeleteBadge {
+                    withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
+                }
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .offset(x: 4, y: -4)
+            }
+
+            // Label doesn't scale
+            Text(displayName)
+                .font(.system(size: 11, weight: .regular, design: .default))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color.black.opacity(0.65))
+                )
+                .frame(maxWidth: width)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(false)
+                .frame(height: 16)
         }
-        .frame(width: width, height: height)
-        .scaleEffect(isPressed ? 0.88 : (isHovered ? 1.04 : 1.0))
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+        .padding(.top, -8)
+        .padding(.bottom, -16)
+        .opacity(isRemoving ? 0 : 1)
         .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
+        .animation(.easeIn(duration: 0.16), value: isRemoving)
         .onHover { isHovered = $0 }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in
                     isPressed = false
-                    // Tap: открыть файл (не папку)
                     NSWorkspace.shared.open(shot.url)
                 }
         )
@@ -275,20 +385,15 @@ private struct TrayScreenshotCell: View {
             NSItemProvider(contentsOf: shot.url) ?? NSItemProvider()
         }
         .contextMenu {
-            Button("Open") {
-                NSWorkspace.shared.open(shot.url)
-            }
-            Button("Show in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([shot.url])
-            }
-            Button("Copy") {
-                NSPasteboard.general.writeImage(at: shot.url)
-            }
+            Button("Open") { NSWorkspace.shared.open(shot.url) }
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
+            Button("Copy") { NSPasteboard.general.writeImage(at: shot.url) }
             Divider()
-            Button("Remove from Tray") { onRemove() }
+            Button("Remove from Tray") {
+                withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
+            }
         }
-        .task(id: shot.url) {
-            loader.load(imageURL: shot.url)
-        }
+        .task(id: shot.url) { loader.load(imageURL: shot.url) }
     }
 }

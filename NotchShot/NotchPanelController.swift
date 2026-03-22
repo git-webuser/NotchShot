@@ -101,6 +101,19 @@ final class NotchPanelController: NSObject {
         screenshot.onCaptured = { [weak self] url in
             self?.trayModel.add(screenshotURL: url)
         }
+        screenshot.onThumbnailTapped = { [weak self] in
+            guard let self else { return }
+            if self.isVisible {
+                self.switchToTray()
+            } else {
+                guard let screen = self.currentScreen ?? NSScreen.main else { return }
+                self.showAnimated(on: screen)
+                // Slight delay so show animation starts before tray transition
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    self.switchToTray()
+                }
+            }
+        }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(menuDidBeginTracking),
@@ -117,6 +130,7 @@ final class NotchPanelController: NSObject {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        removeEscMonitor()
     }
 
     @objc
@@ -186,6 +200,18 @@ final class NotchPanelController: NSObject {
 
     func toggleAnimated(on screen: NSScreen) {
         isVisible ? hideAnimated() : showAnimated(on: screen)
+    }
+
+    /// Trigger a capture directly (e.g. from a hotkey) without going through the panel UI.
+    func captureDirectly(mode: CaptureMode, on screen: NSScreen) {
+        currentScreen = screen
+        updateScreenMetrics(for: screen)
+        screenshot.capture(mode: mode, delaySeconds: 0, preferredScreen: screen)
+    }
+
+    /// Trigger pick color directly (e.g. from a hotkey).
+    func pickColorDirectly() {
+        pickColor()
     }
 
     func showAnimated(on screen: NSScreen) {
@@ -326,6 +352,61 @@ final class NotchPanelController: NSObject {
 
         panel.contentView = NSHostingView(rootView: makeRootView())
         self.panel = panel
+
+        installEscMonitor()
+    }
+
+    private var escEventTap: CFMachPort?
+    private var escEventTapSource: CFRunLoopSource?
+
+    private func installEscMonitor() {
+        let escTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
+            guard let userInfo else { return Unmanaged.passUnretained(event) }
+            let controller = Unmanaged<NotchPanelController>.fromOpaque(userInfo).takeUnretainedValue()
+
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let tap = controller.escEventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+                return Unmanaged.passUnretained(event)
+            }
+
+            guard type == .keyDown else { return Unmanaged.passUnretained(event) }
+            guard event.getIntegerValueField(.keyboardEventKeycode) == 53 else {
+                return Unmanaged.passUnretained(event)
+            }
+
+            DispatchQueue.main.async {
+                guard controller.isVisible else { return }
+                controller.hideAnimated()
+            }
+            // Pass Esc through — don't consume it
+            return Unmanaged.passUnretained(event)
+        }
+
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+            callback: escTapCallback,
+            userInfo: selfPtr
+        ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else { return }
+
+        escEventTap = tap
+        escEventTapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    private func removeEscMonitor() {
+        if let tap = escEventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            if let src = escEventTapSource {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
+                escEventTapSource = nil
+            }
+            escEventTap = nil
+        }
     }
 
     private func makeRootView() -> NotchPanelRootView {
@@ -428,60 +509,57 @@ final class NotchPanelController: NSObject {
 
         let screen = currentScreen ?? NSScreen.main
 
-        // Скрываем системный курсор сразу при выборе пункта меню —
-        // до анимации скрытия панели. Пользователь уже принял решение,
-        // ждать нечего. CursorOverlay.show() потом подхватит состояние.
-        CursorOverlay.hideCursorAfterMenuCloses()
-
-        // Запускаем sampler точно после завершения анимации — без magic delay.
-        hideAnimated { [weak self] in
+        let launch = { [weak self] in
             guard let self else { return }
 
-            // Сохраняем sampler как свойство — иначе ARC уничтожит его сразу после выхода из метода
             let sampler = ColorSampler()
             self.activeSampler = sampler
             self.colorPickerHUD.beginSession(format: sampler.format)
 
-            // Live preview — на каждый тик мыши
             sampler.onColorChanged = { [weak self] color, position, magnifier in
                 guard let self else { return }
-                // Синхронизируем формат (пользователь мог нажать F)
                 self.colorPickerHUD.setFormat(sampler.format)
                 self.colorPickerHUD.update(color: color, cursorPosition: position, magnifier: magnifier)
             }
 
-            // Подтверждение — левый клик
             sampler.onConfirmed = { [weak self] color in
                 guard let self else { return }
                 self.colorSamplerInFlight = false
                 self.activeSampler = nil
 
                 let sRGB = color.usingColorSpace(.sRGB) ?? color
-
-                // Success state: паркуем HUD в угол, показываем «Copied», скрываем через 350 мс
                 self.colorPickerHUD.showSuccess(color: sRGB, on: screen, autoHideAfter: 0.35)
 
-                // Копируем в буфер обмена в текущем формате
                 let formatted = self.colorPickerHUD.currentFormat.format(sRGB)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(formatted, forType: .string)
 
                 self.trayModel.add(color: sRGB)
-                // Возвращаемся в main — tray открывается только явно через кнопку
-                self.switchToMain()
+                // Reset route without showing panel
+                self.route = .main
+                self.rootState.progress = 0.0
             }
 
-            // Отмена — Escape или правый клик
             sampler.onCancelled = { [weak self] in
                 guard let self else { return }
                 self.colorSamplerInFlight = false
                 self.activeSampler = nil
                 self.colorPickerHUD.hide()
-                self.switchToMain()
+                // Reset route without showing panel
+                self.route = .main
+                self.rootState.progress = 0.0
             }
 
-            // Передаём время клика — игнорируем mouseUp от закрытия меню
             sampler.start()
+        }
+
+        if isVisible {
+            // Panel is open — hide it first, then launch sampler
+            CursorOverlay.hideCursorAfterMenuCloses()
+            hideAnimated { launch() }
+        } else {
+            // Panel already hidden — launch sampler directly, no show/hide cycle
+            launch()
         }
     }
 
