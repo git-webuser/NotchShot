@@ -228,7 +228,7 @@ final class NotchPanelController: NSObject {
 
         if metrics.hasNotch {
             isExpanded = false
-            panel.setFrame(frameForWidth(collapsedWidth, on: screen), display: true)
+            panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: true)
 
             let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen), on: screen, height: trayPanelHeight)
             NSAnimationContext.runAnimationGroup { ctx in
@@ -282,7 +282,7 @@ final class NotchPanelController: NSObject {
 
         if metrics.hasNotch {
             isExpanded = false
-            let target = frameForWidth(collapsedWidth, on: screen)
+            let target = frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight)
 
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.18
@@ -459,14 +459,11 @@ final class NotchPanelController: NSObject {
         route = targetRoute
         let targetProgress: CGFloat = targetRoute == .tray ? 1.0 : 0.0
 
-        // Анимируем только SwiftUI progress — плавный crossfade + slide
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-            rootState.progress = targetProgress
-        }
-
-        // Ширина панели меняется без анимации frame (высота уже максимальная)
         let targetWidth = clampedWidth(currentWidthForCurrentRoute, on: screen)
         let targetFrame = frameForWidth(targetWidth, on: screen, height: trayPanelHeight)
+
+        // Устанавливаем целевой frame немедленно (без анимации),
+        // чтобы SwiftUI не делал промежуточный рендер на старом frame
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.28
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.8, 0.25, 1.0)
@@ -474,6 +471,14 @@ final class NotchPanelController: NSObject {
         } completionHandler: { [weak self] in
             self?.trayTransitionInFlight = false
             self?.interactionState.isEnabled = true
+        }
+
+        // SwiftUI-прогресс стартует на следующем тике — после того как
+        // NSAnimationContext уже зафиксировал начальный frame
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                self.rootState.progress = targetProgress
+            }
         }
     }
 

@@ -16,8 +16,12 @@ struct NotchTrayView: View {
     private func handleBack() {
         withAnimation(.easeIn(duration: 0.16)) { contentOpacity = 0 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            contentOpacity = 1.0
             onBack()
+            // Сбрасываем после того как transition уже запущен —
+            // tray в этот момент скрыт через внешний opacity(p)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                contentOpacity = 1.0
+            }
         }
     }
 
