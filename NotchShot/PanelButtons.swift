@@ -85,11 +85,11 @@ struct PanelMenuButton<MenuContent: View>: View {
                         .fill(backgroundFill)
                 )
                 .contentShape(Rectangle())
+                .scaleEffect(isPressed ? 0.88 : 1.0)
+                .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .scaleEffect(isPressed ? 0.88 : 1.0)
-        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
         .onHover { isHovered = $0 }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)

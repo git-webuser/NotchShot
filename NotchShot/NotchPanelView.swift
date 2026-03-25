@@ -25,6 +25,14 @@ enum CaptureMode: CaseIterable, Equatable {
         case .screen:    return "menubar.dock.rectangle"
         }
     }
+
+    var shortLabel: String {
+        switch self {
+        case .selection: return "Sel"
+        case .window:    return "Win"
+        case .screen:    return "Full"
+        }
+    }
 }
 
 // MARK: - CaptureDelay
@@ -63,7 +71,7 @@ enum CaptureDelay: CaseIterable, Equatable {
 // MARK: - NotchPanelModel
 
 final class NotchPanelModel: ObservableObject {
-    @Published var mode: CaptureMode  = .selection
+    @Published var mode: CaptureMode   = .selection
     @Published var delay: CaptureDelay = .off
 }
 
@@ -168,26 +176,12 @@ struct NotchPanelView: View {
     }
 
     private var modeMenuCell: some View {
-        PanelMenuButton(
-            systemName: model.mode.icon,
-            size: 14,
-            weight: .semibold
-        ) {
-            Button { model.mode = .selection } label: {
-                Label("Selection",    systemImage: CaptureMode.selection.icon)
-            }
-            Button { model.mode = .window } label: {
-                Label("Window",       systemImage: CaptureMode.window.icon)
-            }
-            Button { model.mode = .screen } label: {
-                Label("Entire Screen", systemImage: CaptureMode.screen.icon)
-            }
-            Divider()
-            Button { onPickColor() } label: {
-                Label("Pick Color", systemImage: "eyedropper")
-            }
-        }
-        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        PanelModeMenuButton(
+            model: model,
+            metrics: metrics,
+            onPickColor: onPickColor
+        )
+        .animation(nil, value: model.mode)
     }
 
     private var timerMenuCell: some View {
@@ -205,8 +199,8 @@ struct NotchPanelView: View {
     private var trayButtonCell: some View {
         PanelIconButton(
             systemName: "photo.on.rectangle.angled",
-            size: 13,
-            weight: .regular,
+            size: 14,
+            weight: .semibold,
             isActive: isTrayOpen,
             action: onToggleTray
         )
@@ -214,18 +208,8 @@ struct NotchPanelView: View {
     }
 
     private var moreCell: some View {
-        PanelMenuButton(
-            systemName: "ellipsis.circle",
-            size: 14,
-            weight: .semibold
-        ) {
-            Button("Settings") {
-                NSApp.sendAction(#selector(AppDelegate.openSettings), to: nil, from: nil)
-            }
-            Divider()
-            Button("Quit NotchShot") { NSApp.terminate(nil) }
-        }
-        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        PanelMoreMenuButton(metrics: metrics)
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
     }
 
     private var captureButton: some View {
@@ -247,6 +231,366 @@ struct NotchPanelView: View {
     private var contentFade: Animation { .easeOut(duration: 0.16) }
 }
 
+// MARK: - PopUpMoreButtonWrapper
+
+private struct PopUpMoreButtonWrapper: NSViewRepresentable {
+    var onOpen:  () -> Void
+    var onClose: () -> Void
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton()
+        button.isBordered       = false
+        button.isTransparent    = true
+        button.pullsDown        = false
+        button.autoresizingMask = []
+        (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+
+        let settingsItem = NSMenuItem(
+            title: "Settings",
+            action: #selector(Coordinator.settingsTapped),
+            keyEquivalent: ""
+        )
+        button.menu?.addItem(settingsItem)
+        button.menu?.addItem(.separator())
+        let quitItem = NSMenuItem(
+            title: "Quit NotchShot",
+            action: #selector(Coordinator.quitTapped),
+            keyEquivalent: ""
+        )
+        button.menu?.addItem(quitItem)
+
+        // Disable selection tracking — this is an action menu, not a picker
+        button.menu?.autoenablesItems = false
+        settingsItem.state = .off
+        quitItem.state     = .off
+
+        button.target = context.coordinator
+        settingsItem.target = context.coordinator
+        quitItem.target     = context.coordinator
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuWillOpen(_:)),
+            name: NSPopUpButton.willPopUpNotification,
+            object: button
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuDidClose(_:)),
+            name: NSMenu.didEndTrackingNotification,
+            object: button.menu
+        )
+
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        button.selectItem(at: -1)
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject {
+        var parent: PopUpMoreButtonWrapper
+
+        init(_ parent: PopUpMoreButtonWrapper) { self.parent = parent }
+
+        @objc func settingsTapped() {
+            NSApp.sendAction(#selector(AppDelegate.openSettings), to: nil, from: nil)
+        }
+
+        @objc func quitTapped() {
+            NSApp.terminate(nil)
+        }
+
+        @objc func menuWillOpen(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onOpen() }
+        }
+
+        @objc func menuDidClose(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onClose() }
+        }
+    }
+}
+
+// MARK: - PanelMoreMenuButton
+
+private struct PanelMoreMenuButton: View {
+    let metrics: NotchMetrics
+
+    @State private var isHovered  = false
+    @State private var isPressed  = false
+    @State private var isMenuOpen = false
+
+    var body: some View {
+        ZStack {
+            PopUpMoreButtonWrapper(
+                onOpen:  { isMenuOpen = true  },
+                onClose: { isMenuOpen = false }
+            )
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
+
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(foregroundColor)
+                .frame(width: 24, height: 24)
+                .frame(width: metrics.cellWidth, height: metrics.iconSize)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(backgroundColor)
+                        .padding(.vertical, (metrics.iconSize - 24) / 2)
+                )
+                .scaleEffect(isPressed ? 0.88 : 1.0)
+                .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+                .allowsHitTesting(false)
+        }
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        .contentShape(Rectangle())
+        .clipped()
+        .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true  }
+                .onEnded   { _ in isPressed = false }
+        )
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
+    }
+
+    private var foregroundColor: Color {
+        if isMenuOpen { return .white }
+        if isPressed  { return .white }
+        if isHovered  { return .white }
+        return .white.opacity(0.8)
+    }
+
+    private var backgroundColor: Color {
+        if isMenuOpen { return .white.opacity(0.22) }
+        if isPressed  { return .white.opacity(0.20) }
+        if isHovered  { return .white.opacity(0.10) }
+        return .clear
+    }
+}
+
+// MARK: - PopUpModeButtonWrapper
+
+private struct PopUpModeButtonWrapper: NSViewRepresentable {
+    @Binding var selection: CaptureMode
+    var onPickColor: () -> Void
+    var onOpen:  () -> Void
+    var onClose: () -> Void
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton()
+        button.isBordered        = false
+        button.isTransparent     = true
+        button.pullsDown         = false
+        button.autoresizingMask  = []
+        (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+
+        for mode in CaptureMode.allCases {
+            button.addItem(withTitle: mode.title)
+        }
+        button.menu?.addItem(.separator())
+        let pickItem = NSMenuItem(
+            title: "Pick Color",
+            action: #selector(Coordinator.pickColorTapped),
+            keyEquivalent: ""
+        )
+        button.menu?.addItem(pickItem)
+
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+        pickItem.target = context.coordinator
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuWillOpen(_:)),
+            name: NSPopUpButton.willPopUpNotification,
+            object: button
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuDidClose(_:)),
+            name: NSMenu.didEndTrackingNotification,
+            object: button.menu
+        )
+
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        let idx = CaptureMode.allCases.firstIndex(of: selection) ?? 0
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            button.selectItem(at: idx)
+        }
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject {
+        var parent: PopUpModeButtonWrapper
+
+        init(_ parent: PopUpModeButtonWrapper) { self.parent = parent }
+
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            let cases = CaptureMode.allCases
+            let idx = sender.indexOfSelectedItem
+            guard idx >= 0, idx < cases.count else { return }
+            DispatchQueue.main.async { self.parent.selection = cases[idx] }
+        }
+
+        @objc func pickColorTapped() {
+            DispatchQueue.main.async { self.parent.onPickColor() }
+        }
+
+        @objc func menuWillOpen(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onOpen() }
+        }
+
+        @objc func menuDidClose(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onClose() }
+        }
+    }
+}
+
+// MARK: - PopUpButtonWrapper
+
+private struct PopUpButtonWrapper: NSViewRepresentable {
+    @Binding var selection: CaptureDelay
+    var onOpen:  () -> Void
+    var onClose: () -> Void
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton()
+        button.isBordered        = false
+        button.isTransparent     = true
+        button.pullsDown         = false
+        button.autoresizingMask  = []
+        (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+
+        for delay in CaptureDelay.allCases {
+            button.addItem(withTitle: delay.title)
+        }
+
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuWillOpen(_:)),
+            name: NSPopUpButton.willPopUpNotification,
+            object: button
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.menuDidClose(_:)),
+            name: NSMenu.didEndTrackingNotification,
+            object: button.menu
+        )
+
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        let idx = CaptureDelay.allCases.firstIndex(of: selection) ?? 0
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            button.selectItem(at: idx)
+        }
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject {
+        var parent: PopUpButtonWrapper
+
+        init(_ parent: PopUpButtonWrapper) { self.parent = parent }
+
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            let cases = CaptureDelay.allCases
+            let idx = sender.indexOfSelectedItem
+            guard idx >= 0, idx < cases.count else { return }
+            DispatchQueue.main.async { self.parent.selection = cases[idx] }
+        }
+
+        @objc func menuWillOpen(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onOpen() }
+        }
+
+        @objc func menuDidClose(_ notification: Notification) {
+            DispatchQueue.main.async { self.parent.onClose() }
+        }
+    }
+}
+
+// MARK: - PanelModeMenuButton
+
+private struct PanelModeMenuButton: View {
+    @ObservedObject var model: NotchPanelModel
+    let metrics: NotchMetrics
+    let onPickColor: () -> Void
+
+    @State private var isHovered  = false
+    @State private var isPressed  = false
+    @State private var isMenuOpen = false
+
+    var body: some View {
+        ZStack {
+            PopUpModeButtonWrapper(
+                selection: $model.mode,
+                onPickColor: onPickColor,
+                onOpen:  { isMenuOpen = true  },
+                onClose: { isMenuOpen = false }
+            )
+            .frame(width: metrics.cellWidth, height: metrics.iconSize)
+
+            Image(systemName: model.mode.icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(foregroundColor)
+                .frame(width: 24, height: 24)
+                .frame(width: metrics.cellWidth, height: metrics.iconSize)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(backgroundColor)
+                        .padding(.vertical, (metrics.iconSize - 24) / 2)
+                )
+                .scaleEffect(isPressed ? 0.88 : 1.0)
+                .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+                .allowsHitTesting(false)
+        }
+        .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        .contentShape(Rectangle())
+        .clipped()
+        .onHover { isHovered = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true  }
+                .onEnded   { _ in isPressed = false }
+        )
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
+    }
+
+    private var foregroundColor: Color {
+        if isMenuOpen { return .white }
+        if isPressed  { return .white }
+        if isHovered  { return .white }
+        return .white.opacity(0.8)
+    }
+
+    private var backgroundColor: Color {
+        if isMenuOpen { return .white.opacity(0.22) }
+        if isPressed  { return .white.opacity(0.20) }
+        if isHovered  { return .white.opacity(0.10) }
+        return .clear
+    }
+}
+
 // MARK: - PanelTimerMenuButton
 
 private struct PanelTimerMenuButton: View {
@@ -261,13 +605,14 @@ private struct PanelTimerMenuButton: View {
     @State private var isMenuOpen = false
 
     var body: some View {
-        Menu {
-            ForEach(CaptureDelay.allCases, id: \.self) { delay in
-                Button(delay.title) { model.delay = delay }
-            }
-            .onAppear    { isMenuOpen = true  }
-            .onDisappear { isMenuOpen = false }
-        } label: {
+        ZStack {
+            PopUpButtonWrapper(
+                selection: $model.delay,
+                onOpen:  { isMenuOpen = true  },
+                onClose: { isMenuOpen = false }
+            )
+            .frame(width: cellWidth, height: metrics.iconSize)
+
             HStack(spacing: metrics.timerIconToValueGap) {
                 Image(systemName: "timer")
                     .font(.system(size: 14, weight: .semibold))
@@ -283,24 +628,23 @@ private struct PanelTimerMenuButton: View {
                     .transaction { $0.animation = nil }
             }
             .padding(.trailing, hasValue ? metrics.timerTrailingInsetWithValue : 0)
-            .frame(width: cellWidth, alignment: .leading)
+            .frame(width: cellWidth, height: metrics.iconSize, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(timerBackground)
-                    .frame(width: cellWidth, height: 24)
+                    .padding(.vertical, (metrics.iconSize - 24) / 2)
             )
-            .contentShape(Rectangle())
-            .transaction { $0.animation = nil }
+            .scaleEffect(isPressed ? 0.88 : 1.0)
+            .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+            .allowsHitTesting(false)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(height: metrics.iconSize)
-        .scaleEffect(isPressed ? 0.88 : 1.0)
-        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
+        .frame(width: cellWidth, height: metrics.iconSize)
+        .contentShape(Rectangle())
+        .clipped()
         .onHover { isHovered = $0 }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
+                .onChanged { _ in isPressed = true  }
                 .onEnded   { _ in isPressed = false }
         )
         .animation(.easeInOut(duration: 0.12), value: isHovered)
