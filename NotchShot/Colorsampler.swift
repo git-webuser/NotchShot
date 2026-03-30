@@ -238,7 +238,15 @@ final class ColorSampler {
 
     private func shareableContent() async -> SCShareableContent? {
         if let c = cachedContent, Date() < cachedContentExpiry { return c }
-        let fresh = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let fresh: SCShareableContent?
+        do {
+            fresh = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } catch {
+            #if DEBUG
+            print("[ColorSampler] SCShareableContent failed: \(error)")
+            #endif
+            fresh = nil
+        }
         cachedContent = fresh
         cachedContentExpiry = Date().addingTimeInterval(contentCacheTTL)
         return fresh
@@ -274,9 +282,15 @@ final class ColorSampler {
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = false
 
-        guard let cgImage = try? await SCScreenshotManager.captureImage(
-            contentFilter: filter, configuration: config
-        ) else { return nil }
+        let cgImage: CGImage
+        do {
+            cgImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        } catch {
+            #if DEBUG
+            print("[ColorSampler] captureImage failed: \(error)")
+            #endif
+            return nil
+        }
 
         // Конвертируем AppKit point → Quartz point → пиксель в capture buffer.
         // capture buffer соответствует display.frame в Quartz-координатах.

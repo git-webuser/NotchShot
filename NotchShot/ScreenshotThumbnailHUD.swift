@@ -186,7 +186,13 @@ struct ScreenshotThumbnailView: View {
             }
             Divider()
             Button("Delete") {
-                try? FileManager.default.removeItem(at: imageURL)
+                do {
+                    try FileManager.default.removeItem(at: imageURL)
+                } catch {
+                    #if DEBUG
+                    print("[ThumbnailHUD] removeItem failed: \(error)")
+                    #endif
+                }
                 onDismiss()
             }
         }

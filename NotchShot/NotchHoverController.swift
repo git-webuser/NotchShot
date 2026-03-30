@@ -271,7 +271,7 @@ final class NotchHoverController: NSObject {
 
     private func preferredScreenForOpen() -> NSScreen {
         let mouse = NSEvent.mouseLocation
-        return screenForPoint(mouse) ?? NSScreen.main ?? NSScreen.screens[0]
+        return screenForPoint(mouse) ?? NSScreen.main ?? NSScreen.screens.first ?? NSScreen()
     }
 
     private func screenForPoint(_ p: NSPoint) -> NSScreen? {

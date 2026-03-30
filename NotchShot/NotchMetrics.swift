@@ -128,7 +128,10 @@ struct NotchMetrics {
     }
 
     static func fallback() -> NotchMetrics {
-        from(screen: NSScreen.main ?? NSScreen.screens[0])
+        if let screen = NSScreen.main ?? NSScreen.screens.first {
+            return from(screen: screen)
+        }
+        return from(screen: NSScreen())
     }
 }
 

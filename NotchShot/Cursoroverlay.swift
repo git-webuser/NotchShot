@@ -151,11 +151,7 @@ final class CursorOverlay {
                 token = nil
             }
 
-            DispatchQueue.main.async {
-                DispatchQueue.main.async {
-                    makeScreenshotCrosshairCursor().set()
-                }
-            }
+            makeScreenshotCrosshairCursor().set()
         }
     }
 
@@ -164,7 +160,7 @@ final class CursorOverlay {
         let screen =
             NSScreen.screens.first(where: { $0.frame.contains(cursorPos) }) ??
             NSScreen.main ??
-            NSScreen.screens[0]
+            NSScreen.screens.first ?? NSScreen()
 
         ensureFullscreenWindow(on: screen)
         installGlobalMouseMonitor()

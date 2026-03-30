@@ -94,7 +94,13 @@ final class NotchTrayModel: ObservableObject {
         let excess = items.suffix(from: maxItems)
         for item in excess {
             if case .screenshot(let s) = item {
-                try? FileManager.default.removeItem(at: s.url)
+                do {
+                    try FileManager.default.removeItem(at: s.url)
+                } catch {
+                    #if DEBUG
+                    print("[TrayModel] removeItem failed: \(error)")
+                    #endif
+                }
             }
         }
         items = Array(items.prefix(maxItems))
