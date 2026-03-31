@@ -67,12 +67,15 @@ private struct NotchPanelRootView: View {
             .allowsHitTesting(p < 0.5)
 
             // Tray — появляется при p→1; content pre-fade через trayContentVisible
+            // Два отдельных модификатора: SwiftUI трекает их независимо,
+            // чтобы анимация progress не "затягивала" trayContentVisible
             NotchTrayView(
                 metrics: m,
                 trayModel: trayModel,
                 onBack: onBack
             )
-            .opacity(p * rootState.trayContentVisible)
+            .opacity(rootState.trayContentVisible)
+            .opacity(p)
             .allowsHitTesting(p >= 0.5)
         }
         .frame(height: trayH)
@@ -459,31 +462,39 @@ final class NotchPanelController: NSObject {
         interactionState.isEnabled = false
 
         if targetRoute == .main {
-            // Мгновенно скрываем контент — морф стартует с пустой формой
+            // Шаг 1: скрываем контент в отдельном рендер-пассе (без withAnimation).
+            // Если вызвать сразу вместе с withAnimation { progress = 0 }, SwiftUI
+            // батчит оба objectWillChange и применяет easeIn-контекст к обоим —
+            // тогда opacity анимируется от 1→0 за 0.28s вместо мгновенного скачка.
             rootState.trayContentVisible = 0.0
 
-            route = .main
-            let targetFrame = frameForWidth(
-                clampedWidth(currentWidthForCurrentRoute, on: screen),
-                on: screen, height: trayPanelHeight
-            )
-
+            // Шаг 2: даём SwiftUI один рендер-пасс обработать скрытие контента,
+            // только после этого запускаем морф формы.
             let closeDuration: TimeInterval = 0.28
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak panel] in
+                guard let self, let panel else { return }
 
-            // X: ширина панели — NSAnimationContext
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = closeDuration
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                panel.animator().setFrame(targetFrame, display: true)
-            } completionHandler: { [weak self] in
-                self?.trayTransitionInFlight = false
-                self?.interactionState.isEnabled = true
-                self?.rootState.trayContentVisible = 1.0  // сброс для следующего открытия
-            }
+                self.route = .main
+                let targetFrame = self.frameForWidth(
+                    self.clampedWidth(self.currentWidthForCurrentRoute, on: screen),
+                    on: screen, height: self.trayPanelHeight
+                )
 
-            // Y: морф формы — та же кривая, стартует синхронно в том же runloop-цикле
-            withAnimation(.easeIn(duration: closeDuration)) {
-                rootState.progress = 0.0
+                // X: ширина панели — NSAnimationContext
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = closeDuration
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    panel.animator().setFrame(targetFrame, display: true)
+                } completionHandler: { [weak self] in
+                    self?.trayTransitionInFlight = false
+                    self?.interactionState.isEnabled = true
+                    self?.rootState.trayContentVisible = 1.0  // сброс для следующего открытия
+                }
+
+                // Y: морф формы — та же кривая, синхронно с X в том же runloop-цикле
+                withAnimation(.easeIn(duration: closeDuration)) {
+                    self.rootState.progress = 0.0
+                }
             }
         } else {
             // Открытие: упругий spring как прежде
