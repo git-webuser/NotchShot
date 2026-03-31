@@ -9,20 +9,10 @@ struct NotchTrayView: View {
     @ObservedObject var trayModel: NotchTrayModel
     let onBack: () -> Void
 
-    @State private var scheme:         ColorSchemeType = .hex
-    @State private var contentOpacity: Double = 1.0
+    @State private var scheme: ColorSchemeType = .hex
 
-    // Fade out content, then call onBack
     private func handleBack() {
-        withAnimation(.easeIn(duration: 0.16)) { contentOpacity = 0 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            onBack()
-            // Сбрасываем после того как transition уже запущен —
-            // tray в этот момент скрыт через внешний opacity(p)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                contentOpacity = 1.0
-            }
-        }
+        onBack()  // контроллер управляет fade-out контента
     }
 
     private let panelRounding: CGFloat = 15  // clearance for panel corner radius
@@ -45,7 +35,6 @@ struct NotchTrayView: View {
             }
         }
         .frame(height: trayHeight)
-        .opacity(contentOpacity)
     }
 
     private var notchLayout: some View {

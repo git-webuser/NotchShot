@@ -21,6 +21,8 @@ private final class NotchPanelRootState: ObservableObject {
     @Published var metrics: NotchMetrics = .fallback()
     /// 0.0 = Main, 1.0 = Tray
     @Published var progress: CGFloat = 0.0
+    /// Pre-faded to 0.0 before tray→main morph starts; reset to 1.0 after close completes
+    @Published var trayContentVisible: CGFloat = 1.0
 }
 
 private struct NotchPanelRootView: View {
@@ -49,7 +51,7 @@ private struct NotchPanelRootView: View {
                 .compositingGroup()
                 .frame(height: trayH)
 
-            // Main — гаснет при p→1
+            // Main — появляется только в последних ~60% морфа (когда панель почти схлопнулась)
             NotchPanelView(
                 metrics: m,
                 interaction: interaction,
@@ -61,16 +63,16 @@ private struct NotchPanelRootView: View {
                 onPickColor: onPickColor,
                 onModeDelayChanged: onModeDelayChanged
             )
-            .opacity(1.0 - p)
+            .opacity(max(0.0, min(1.0, (0.6 - p) / 0.6)))
             .allowsHitTesting(p < 0.5)
 
-            // Tray — появляется при p→1
+            // Tray — появляется при p→1; content pre-fade через trayContentVisible
             NotchTrayView(
                 metrics: m,
                 trayModel: trayModel,
                 onBack: onBack
             )
-            .opacity(p)
+            .opacity(p * rootState.trayContentVisible)
             .allowsHitTesting(p >= 0.5)
         }
         .frame(height: trayH)
@@ -456,28 +458,52 @@ final class NotchPanelController: NSObject {
         trayTransitionInFlight = true
         interactionState.isEnabled = false
 
-        route = targetRoute
-        let targetProgress: CGFloat = targetRoute == .tray ? 1.0 : 0.0
+        if targetRoute == .main {
+            // Мгновенно скрываем контент — морф стартует с пустой формой
+            rootState.trayContentVisible = 0.0
 
-        let targetWidth = clampedWidth(currentWidthForCurrentRoute, on: screen)
-        let targetFrame = frameForWidth(targetWidth, on: screen, height: trayPanelHeight)
+            route = .main
+            let targetFrame = frameForWidth(
+                clampedWidth(currentWidthForCurrentRoute, on: screen),
+                on: screen, height: trayPanelHeight
+            )
 
-        // Устанавливаем целевой frame немедленно (без анимации),
-        // чтобы SwiftUI не делал промежуточный рендер на старом frame
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.28
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.8, 0.25, 1.0)
-            panel.animator().setFrame(targetFrame, display: true)
-        } completionHandler: { [weak self] in
-            self?.trayTransitionInFlight = false
-            self?.interactionState.isEnabled = true
-        }
+            let closeDuration: TimeInterval = 0.28
 
-        // SwiftUI-прогресс стартует на следующем тике — после того как
-        // NSAnimationContext уже зафиксировал начальный frame
-        DispatchQueue.main.async {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                self.rootState.progress = targetProgress
+            // X: ширина панели — NSAnimationContext
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = closeDuration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panel.animator().setFrame(targetFrame, display: true)
+            } completionHandler: { [weak self] in
+                self?.trayTransitionInFlight = false
+                self?.interactionState.isEnabled = true
+                self?.rootState.trayContentVisible = 1.0  // сброс для следующего открытия
+            }
+
+            // Y: морф формы — та же кривая, стартует синхронно в том же runloop-цикле
+            withAnimation(.easeIn(duration: closeDuration)) {
+                rootState.progress = 0.0
+            }
+        } else {
+            // Открытие: упругий spring как прежде
+            route = .tray
+            let targetFrame = frameForWidth(
+                clampedWidth(currentWidthForCurrentRoute, on: screen),
+                on: screen, height: trayPanelHeight
+            )
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.28
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.8, 0.25, 1.0)
+                panel.animator().setFrame(targetFrame, display: true)
+            } completionHandler: { [weak self] in
+                self?.trayTransitionInFlight = false
+                self?.interactionState.isEnabled = true
+            }
+            DispatchQueue.main.async {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    self.rootState.progress = 1.0
+                }
             }
         }
     }
