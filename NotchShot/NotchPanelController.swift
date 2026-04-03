@@ -167,7 +167,7 @@ final class NotchPanelController: NSObject {
 
     private var expandedWidth: CGFloat {
         if metrics.hasNotch {
-            let timerCell = metrics.iconSize + metrics.timerIconToValueGap + metrics.timerValueWidth + metrics.timerTrailingInsetWithValue
+            let timerCell = metrics.timerMaxCellWidth
 
             let leftMin = metrics.edgeSafe
                 + metrics.cellWidth + metrics.gap

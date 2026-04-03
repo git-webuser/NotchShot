@@ -415,7 +415,6 @@ private struct PanelModeMenuButton: View {
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(backgroundColor)
-                        .padding(.vertical, (metrics.iconSize - 24) / 2)
                 )
                 .scaleEffect(isPressed ? 0.88 : 1.0)
                 .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
@@ -443,8 +442,8 @@ private struct PanelModeMenuButton: View {
 
     private var backgroundColor: Color {
         if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.20) }
-        if isHovered  { return .white.opacity(0.10) }
+        if isPressed  { return .white.opacity(0.28) }
+        if isHovered  { return .white.opacity(0.16) }
         return .clear
     }
 }
@@ -477,20 +476,20 @@ private struct PanelTimerMenuButton: View {
                     .foregroundStyle(timerForeground)
                     .frame(width: metrics.iconSize, height: metrics.iconSize)
 
-                Text(model.delay.shortLabel ?? "")
-                    .font(.system(size: 12, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.9))
-                    .frame(width: digitsWidth, height: 12, alignment: .leading)
-                    .opacity(hasValue ? 1 : 0)
-                    .transaction { $0.animation = nil }
+                if hasValue {
+                    Text(model.delay.shortLabel ?? "")
+                        .font(.system(size: 12, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.9))
+                        .frame(width: digitsWidth, height: 12, alignment: .leading)
+                }
             }
+            .padding(.leading,  hasValue ? metrics.timerLeadingInsetWithValue  : 0)
             .padding(.trailing, hasValue ? metrics.timerTrailingInsetWithValue : 0)
-            .frame(width: cellWidth, height: metrics.iconSize, alignment: .leading)
+            .frame(width: cellWidth, height: metrics.iconSize, alignment: hasValue ? .leading : .center)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(timerBackground)
-                    .padding(.vertical, (metrics.iconSize - 24) / 2)
             )
             .scaleEffect(isPressed ? 0.88 : 1.0)
             .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
@@ -518,8 +517,8 @@ private struct PanelTimerMenuButton: View {
 
     private var timerBackground: Color {
         if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.20) }
-        if isHovered  { return .white.opacity(0.10) }
+        if isPressed  { return .white.opacity(0.28) }
+        if isHovered  { return .white.opacity(0.16) }
         return .clear
     }
 }

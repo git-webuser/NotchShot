@@ -60,6 +60,9 @@ struct NotchMetrics {
     /// Ширина текста со значением таймера (2 символа).
     let timerValueWidth: CGFloat
 
+    /// Leading-отступ ячейки таймера, когда цифры видны.
+    let timerLeadingInsetWithValue: CGFloat
+
     /// Trailing-отступ ячейки таймера, когда цифры видны.
     let timerTrailingInsetWithValue: CGFloat
 
@@ -83,6 +86,11 @@ struct NotchMetrics {
 
     // MARK: - Timer cell helpers
 
+    /// Максимальная ширина ячейки таймера (2-значный label, используется в notch expandedWidth).
+    var timerMaxCellWidth: CGFloat {
+        timerLeadingInsetWithValue + iconSize + timerIconToValueGap + timerValueWidth + timerTrailingInsetWithValue
+    }
+
     /// Ширина цифровой части таймера для заданного shortLabel.
     func timerDigitsWidth(for shortLabel: String?) -> CGFloat {
         switch shortLabel?.count ?? 0 {
@@ -95,7 +103,7 @@ struct NotchMetrics {
     /// Итоговая ширина ячейки таймера.
     func timerCellWidth(for shortLabel: String?) -> CGFloat {
         guard shortLabel != nil else { return cellWidth }
-        return iconSize + timerIconToValueGap + timerDigitsWidth(for: shortLabel) + timerTrailingInsetWithValue
+        return timerLeadingInsetWithValue + iconSize + timerIconToValueGap + timerDigitsWidth(for: shortLabel) + timerTrailingInsetWithValue
     }
 
     // MARK: - Factory
@@ -115,15 +123,16 @@ struct NotchMetrics {
             edgeSafe: hasNotch ? 20 : 5,
             leftMinToNotch: 36,
             rightMinFromNotch: 12,
-            cellWidth: 28,
+            cellWidth: 32,
             iconSize: 24,
-            gap: 8,
-            timerIconToValueGap: 6,
+            gap: 4,
+            timerIconToValueGap: 2,
             timerValueWidth: 16,
+            timerLeadingInsetWithValue: 4,
             timerTrailingInsetWithValue: 8,
             captureButtonWidth: 71,
             buttonHeight: 24,
-            buttonRadius: 8
+            buttonRadius: 6
         )
     }
 

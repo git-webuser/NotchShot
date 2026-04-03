@@ -33,6 +33,7 @@ struct PanelIconButton: View {
                 .font(.system(size: size, weight: weight))
                 .foregroundStyle(foregroundColor)
                 .frame(width: 24, height: 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(backgroundFill)
@@ -54,63 +55,6 @@ struct PanelIconButton: View {
         if isActive && isHovered { return .white.opacity(0.32) }
         if isHovered             { return .white.opacity(0.16) }
         if isActive              { return .white.opacity(0.22) }
-        return .clear
-    }
-}
-
-// MARK: - PanelMenuButton
-
-struct PanelMenuButton<MenuContent: View>: View {
-    let systemName: String
-    let size: CGFloat
-    let weight: Font.Weight
-    @ViewBuilder let menuContent: () -> MenuContent
-
-    @State private var isHovered  = false
-    @State private var isPressed  = false
-    @State private var isMenuOpen = false
-
-    var body: some View {
-        Menu {
-            menuContent()
-                .onAppear    { isMenuOpen = true  }
-                .onDisappear { isMenuOpen = false }
-        } label: {
-            Image(systemName: systemName)
-                .font(.system(size: size, weight: weight))
-                .foregroundStyle(foregroundColor)
-                .frame(width: 24, height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(backgroundFill)
-                )
-                .contentShape(Rectangle())
-                .scaleEffect(isPressed ? 0.88 : 1.0)
-                .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .onHover { isHovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded   { _ in isPressed = false }
-        )
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
-        .animation(.easeInOut(duration: 0.12), value: isMenuOpen)
-    }
-
-    private var foregroundColor: Color {
-        if isMenuOpen { return .white }
-        if isPressed  { return .white }
-        if isHovered  { return .white }
-        return .white.opacity(0.8)
-    }
-
-    private var backgroundFill: Color {
-        if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.20) }
-        if isHovered  { return .white.opacity(0.10) }
         return .clear
     }
 }
@@ -221,7 +165,6 @@ struct PanelMoreMenuButton: View {
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(backgroundColor)
-                        .padding(.vertical, (metrics.iconSize - 24) / 2)
                 )
                 .scaleEffect(isPressed ? 0.88 : 1.0)
                 .animation(.spring(response: 0.18, dampingFraction: 0.7), value: isPressed)
@@ -249,8 +192,8 @@ struct PanelMoreMenuButton: View {
 
     private var backgroundColor: Color {
         if isMenuOpen { return .white.opacity(0.22) }
-        if isPressed  { return .white.opacity(0.20) }
-        if isHovered  { return .white.opacity(0.10) }
+        if isPressed  { return .white.opacity(0.28) }
+        if isHovered  { return .white.opacity(0.16) }
         return .clear
     }
 }
