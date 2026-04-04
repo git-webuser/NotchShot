@@ -299,6 +299,7 @@ private struct TrayScreenshotCell: View {
     @State private var isPressed    = false
     @State private var isRemoving   = false
     @State private var isBadgeActive = false
+    @State private var isDragging   = false
 
     private var width: CGFloat { height * 1.6 }
 
@@ -353,25 +354,21 @@ private struct TrayScreenshotCell: View {
                 .allowsHitTesting(false)
                 .offset(y: labelOffset)
         }
-        .scaleEffect(isPressed ? 0.88 : 1.0)
-        .opacity(isRemoving ? 0 : 1)
+        .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
+        .opacity(isRemoving ? 0 : (isDragging ? 0.45 : 1))
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
         .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
         .animation(.easeIn(duration: 0.16), value: isRemoving)
         .onHover { isHovered = $0 }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isBadgeActive { isPressed = true }
-                }
-                .onEnded { _ in
-                    isPressed = false
-                    guard !isBadgeActive else { isBadgeActive = false; return }
-                    NSWorkspace.shared.open(shot.url)
-                }
-        )
-        .onDrag {
-            NSItemProvider(contentsOf: shot.url) ?? NSItemProvider()
+        .overlay {
+            TrayDragShim(
+                url: shot.url,
+                dragImage: loader.image,
+                cellSize: CGSize(width: width, height: height),
+                isPressed: $isPressed,
+                isDragging: $isDragging,
+                onTap: { NSWorkspace.shared.open(shot.url) }
+            )
         }
         .contextMenu {
             Button("Open") { NSWorkspace.shared.open(shot.url) }
@@ -529,5 +526,102 @@ private struct TraySchemeMenuButton: View {
         if isPressed  { return .white.opacity(0.28) }
         if isHovered  { return .white.opacity(0.16) }
         return .clear
+    }
+}
+
+// MARK: - Drag Shim (NSView-based NSDraggingSource)
+
+private struct TrayDragShim: NSViewRepresentable {
+    let url: URL
+    let dragImage: NSImage?
+    let cellSize: CGSize
+    @Binding var isPressed: Bool
+    @Binding var isDragging: Bool
+    let onTap: () -> Void
+
+    func makeNSView(context: Context) -> TrayDragShimView {
+        TrayDragShimView(isPressed: $isPressed, isDragging: $isDragging, onTap: onTap)
+    }
+
+    func updateNSView(_ nsView: TrayDragShimView, context: Context) {
+        nsView.url = url
+        nsView.dragImage = dragImage
+        nsView.cellSize = cellSize
+    }
+}
+
+final class TrayDragShimView: NSView, NSDraggingSource {
+    var url: URL?
+    var dragImage: NSImage?
+    var cellSize: CGSize = .zero
+    /// Size of the top-right corner to leave for the delete badge
+    var badgeExcludeSize: CGFloat = 22
+
+    @Binding var isPressed: Bool
+    @Binding var isDragging: Bool
+    let onTap: () -> Void
+
+    private var mouseDownPoint: NSPoint?
+
+    init(isPressed: Binding<Bool>, isDragging: Binding<Bool>, onTap: @escaping () -> Void) {
+        self._isPressed = isPressed
+        self._isDragging = isDragging
+        self.onTap = onTap
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// Match SwiftUI coordinate system: origin top-left, y increases downward
+    override var isFlipped: Bool { true }
+
+    /// Exclude top-right badge corner so SwiftUI's delete badge can receive events
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if point.x >= bounds.width - badgeExcludeSize && point.y <= badgeExcludeSize {
+            return nil
+        }
+        return super.hitTest(point)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownPoint = convert(event.locationInWindow, from: nil)
+        DispatchQueue.main.async { self.isPressed = true }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let start = mouseDownPoint
+        mouseDownPoint = nil
+        DispatchQueue.main.async {
+            self.isPressed = false
+            self.isDragging = false
+        }
+        if let start {
+            let current = convert(event.locationInWindow, from: nil)
+            if hypot(current.x - start.x, current.y - start.y) < 5 { onTap() }
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let url else { return }
+        DispatchQueue.main.async {
+            self.isPressed = false
+            self.isDragging = true
+        }
+        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        let previewSize = NSSize(width: cellSize.width * 0.75, height: cellSize.height * 0.75)
+        item.setDraggingFrame(NSRect(origin: .zero, size: previewSize), contents: dragImage)
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    func draggingSession(_ session: NSDraggingSession,
+                         sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .outsideApplication ? [.copy, .link] : [.move]
+    }
+
+    func draggingSession(_ session: NSDraggingSession,
+                         endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        DispatchQueue.main.async { self.isDragging = false }
     }
 }
