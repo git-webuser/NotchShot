@@ -641,12 +641,12 @@ struct CountdownView: View {
             ZStack {
                 Circle()
                     .stroke(.white.opacity(0.15), lineWidth: 2)
-                    .frame(width: 20, height: 20)
+                    .frame(width: 14, height: 14)
 
                 Circle()
                     .trim(from: 0, to: arcProgress)
                     .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .frame(width: 20, height: 20)
+                    .frame(width: 14, height: 14)
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 1.0), value: arcProgress)
             }
