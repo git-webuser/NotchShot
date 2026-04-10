@@ -16,6 +16,7 @@ enum AppSettings {
         static let thumbnailDismissDelay = "thumbnailDismissDelay"
         // Capture
         static let saveDirectory         = "saveDirectory"
+        static let saveDirectoryBookmark = "saveDirectoryBookmark"
         static let fileFormat            = "fileFormat"
         static let filenameTemplate      = "filenameTemplate"
         static let playSound             = "playSound"
@@ -55,12 +56,32 @@ enum AppSettings {
 
     // MARK: Capture
     static var saveDirectoryURL: URL {
-        let path = UserDefaults.standard.string(forKey: Keys.saveDirectory) ?? ""
-        if path.isEmpty {
-            return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                ?? FileManager.default.homeDirectoryForCurrentUser
+        if let data = UserDefaults.standard.data(forKey: Keys.saveDirectoryBookmark) {
+            var isStale = false
+            if let url = try? URL(resolvingBookmarkData: data,
+                                  options: .withSecurityScope,
+                                  relativeTo: nil,
+                                  bookmarkDataIsStale: &isStale) {
+                if isStale, let fresh = try? url.bookmarkData(options: .withSecurityScope,
+                                                               includingResourceValuesForKeys: nil,
+                                                               relativeTo: nil) {
+                    UserDefaults.standard.set(fresh, forKey: Keys.saveDirectoryBookmark)
+                }
+                return url
+            }
         }
-        return URL(fileURLWithPath: path)
+        let path = UserDefaults.standard.string(forKey: Keys.saveDirectory) ?? ""
+        if !path.isEmpty { return URL(fileURLWithPath: path) }
+        return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+    }
+
+    static func withSaveDirectoryAccess<T>(_ block: (URL) throws -> T) throws -> T {
+        let url = saveDirectoryURL
+        let hasBookmark = UserDefaults.standard.data(forKey: Keys.saveDirectoryBookmark) != nil
+        let accessing = hasBookmark && url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        return try block(url)
     }
     static var fileFormat: String {
         UserDefaults.standard.string(forKey: Keys.fileFormat) ?? "png"

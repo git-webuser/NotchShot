@@ -114,15 +114,16 @@ final class NotchTrayModel: ObservableObject {
         items.removeAll { $0.id == id }
     }
 
+    func remove(screenshotURL url: URL) {
+        items.removeAll {
+            if case .screenshot(let s) = $0 { return s.url == url }
+            return false
+        }
+    }
+
     private func trim() {
         let limit = AppSettings.trayMaxItems
         guard items.count > limit else { return }
-        let excess = items.suffix(from: limit)
-        for item in excess {
-            if case .screenshot(let s) = item {
-                try? FileManager.default.removeItem(at: s.url)
-            }
-        }
         items = Array(items.prefix(limit))
     }
 

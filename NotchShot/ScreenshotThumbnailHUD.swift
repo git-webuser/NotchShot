@@ -12,6 +12,9 @@ final class ScreenshotThumbnailHUD {
     /// Called when user taps the thumbnail — intended to open tray.
     var onTapped: (() -> Void)?
 
+    /// Called when user deletes the screenshot from the context menu — intended to sync tray.
+    var onDelete: (() -> Void)?
+
     func show(imageURL: URL, on screen: NSScreen?) {
         guard AppSettings.showThumbnailHUD else { return }
         DispatchQueue.main.async {
@@ -31,6 +34,7 @@ final class ScreenshotThumbnailHUD {
             let view = ScreenshotThumbnailView(
                 imageURL: imageURL,
                 onDismiss: { [weak self] in self?.hide(animated: true) },
+                onDelete: { [weak self] in self?.onDelete?() },
                 onTapped: { [weak self] in
                     self?.hide(animated: true)
                     self?.onTapped?()
@@ -128,6 +132,7 @@ final class ScreenshotThumbnailHUD {
 struct ScreenshotThumbnailView: View {
     let imageURL: URL
     let onDismiss: () -> Void
+    let onDelete: () -> Void
     let onTapped: () -> Void
     let onHoverChanged: (Bool) -> Void
 
@@ -194,6 +199,7 @@ struct ScreenshotThumbnailView: View {
                     print("[ThumbnailHUD] removeItem failed: \(error)")
                     #endif
                 }
+                onDelete()
                 onDismiss()
             }
         }

@@ -375,11 +375,31 @@ private struct TrayScreenshotCell: View {
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
-                onTap: { NSWorkspace.shared.open(shot.url) }
+                onTap: {
+                    let saveDir = AppSettings.saveDirectoryURL
+                    let hasBookmark = UserDefaults.standard.data(
+                        forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
+                    let accessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
+                    let cfg = NSWorkspace.OpenConfiguration()
+                    cfg.activates = true
+                    NSWorkspace.shared.open(shot.url, configuration: cfg) { _, _ in
+                        if accessing { saveDir.stopAccessingSecurityScopedResource() }
+                    }
+                }
             )
         }
         .contextMenu {
-            Button("Open") { NSWorkspace.shared.open(shot.url) }
+            Button("Open") {
+                let saveDir = AppSettings.saveDirectoryURL
+                let hasBookmark = UserDefaults.standard.data(
+                    forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
+                let accessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
+                let cfg = NSWorkspace.OpenConfiguration()
+                cfg.activates = true
+                NSWorkspace.shared.open(shot.url, configuration: cfg) { _, _ in
+                    if accessing { saveDir.stopAccessingSecurityScopedResource() }
+                }
+            }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
             Button("Copy") { NSPasteboard.general.writeImage(at: shot.url) }
             Divider()
@@ -572,6 +592,7 @@ final class TrayDragShimView: NSView, NSDraggingSource {
     let onTap: () -> Void
 
     private var mouseDownPoint: NSPoint?
+    private var dragAccessing = false
 
     init(isPressed: Binding<Bool>, isDragging: Binding<Bool>, onTap: @escaping () -> Void) {
         self._isPressed = isPressed
@@ -619,6 +640,13 @@ final class TrayDragShimView: NSView, NSDraggingSource {
             self.isPressed = false
             self.isDragging = true
         }
+        // Sandbox requires the source app to hold an active security scope for
+        // the file while the drag session runs so the destination can read it.
+        let saveDir = AppSettings.saveDirectoryURL
+        let hasBookmark = UserDefaults.standard.data(
+            forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
+        dragAccessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
+
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         let previewSize = NSSize(width: cellSize.width * 0.75, height: cellSize.height * 0.75)
         item.setDraggingFrame(NSRect(origin: .zero, size: previewSize), contents: dragImage)
@@ -632,6 +660,10 @@ final class TrayDragShimView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        if dragAccessing {
+            AppSettings.saveDirectoryURL.stopAccessingSecurityScopedResource()
+            dragAccessing = false
+        }
         DispatchQueue.main.async { self.isDragging = false }
     }
 }

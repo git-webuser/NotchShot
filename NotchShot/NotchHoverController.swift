@@ -41,16 +41,27 @@ final class NotchHoverController: NSObject {
             name: .settingsWindowDidClose,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onUserDefaultsChanged),
+            name: UserDefaults.didChangeNotification,
+            object: nil
+        )
     }
 
     func stop() {
         NotificationCenter.default.removeObserver(self, name: .settingsWindowDidClose, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: nil)
         uninstallEventTap()
         uninstallHotKey()
         uninstallStatusItem()
     }
 
     @objc private func onSettingsDidClose() {
+        reinstallHotKeysIfNeeded()
+    }
+
+    @objc private func onUserDefaultsChanged() {
         reinstallHotKeysIfNeeded()
     }
 

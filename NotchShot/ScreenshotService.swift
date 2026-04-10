@@ -15,6 +15,9 @@ final class ScreenshotService {
     /// Called when user taps the thumbnail HUD — should open tray.
     var onThumbnailTapped: (() -> Void)?
 
+    /// Called when user deletes a screenshot from the thumbnail HUD. Passes the deleted file URL.
+    var onDelete: ((URL) -> Void)?
+
     init() {
         thumbnailHUD.onTapped = { [weak self] in
             self?.onThumbnailTapped?()
@@ -105,20 +108,20 @@ final class ScreenshotService {
     }
 
     private func handleCapturedFile(at tmpURL: URL, preferredScreen: NSScreen?) {
-        let outputDir = AppSettings.saveDirectoryURL
-        let finalURL  = outputDir.appendingPathComponent(makeFilename())
-
         do {
-            if fm.fileExists(atPath: finalURL.path) {
-                try fm.removeItem(at: finalURL)
+            let finalURL = try AppSettings.withSaveDirectoryAccess { outputDir in
+                let dest = outputDir.appendingPathComponent(makeFilename())
+                if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                try fm.moveItem(at: tmpURL, to: dest)
+                return dest
             }
-            try fm.moveItem(at: tmpURL, to: finalURL)
 
             lastCaptureURL = finalURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if AppSettings.playSound { ScreenshotSoundPlayer.play() }
                 if AppSettings.copyToClipboard { NSPasteboard.general.writeImage(at: finalURL) }
+                self.thumbnailHUD.onDelete = { [weak self] in self?.onDelete?(finalURL) }
                 self.thumbnailHUD.show(imageURL: finalURL, on: preferredScreen)
                 self.onCaptured?(finalURL)
             }
@@ -133,6 +136,7 @@ final class ScreenshotService {
                 alert.informativeText = "Could not save to the selected folder: \(error.localizedDescription)\n\nThe file was kept in the temporary folder instead."
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
+                self.thumbnailHUD.onDelete = { [weak self] in self?.onDelete?(tmpURL) }
                 self.thumbnailHUD.show(imageURL: tmpURL, on: preferredScreen)
                 self.onCaptured?(tmpURL)
             }

@@ -106,13 +106,17 @@ struct CaptureSettingsView: View {
 
     private func chooseSaveFolder() {
         let panel = NSOpenPanel()
-        panel.canChooseFiles      = false
+        panel.canChooseFiles       = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.prompt  = "Choose"
         panel.message = "Select the folder where screenshots will be saved"
-        if panel.runModal() == .OK, let url = panel.url {
-            saveDirectory = url.path
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if let data = try? url.bookmarkData(options: .withSecurityScope,
+                                            includingResourceValuesForKeys: nil,
+                                            relativeTo: nil) {
+            UserDefaults.standard.set(data, forKey: AppSettings.Keys.saveDirectoryBookmark)
         }
+        saveDirectory = url.path
     }
 }

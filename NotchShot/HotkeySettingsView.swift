@@ -15,9 +15,6 @@ struct HotkeySettingsView: View {
                 HotkeyRow(action: "Fullscreen Screenshot",combo: "⌃⌥⌘G", isEnabled: $fullscreenEnabled)
                 HotkeyRow(action: "Window Screenshot",    combo: "⌃⌥⌘B", isEnabled: $windowEnabled)
                 HotkeyRow(action: "Pick Color",           combo: "⌃⌥⌘C", isEnabled: $colorEnabled)
-            } footer: {
-                Text("Custom key combinations will be available in a future update.")
-                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
