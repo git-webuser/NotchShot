@@ -231,6 +231,9 @@ final class NotchPanelController: NSObject {
         currentScreen = screen
         updateScreenMetrics(for: screen)
 
+        model.mode  = AppSettings.defaultCaptureMode
+        model.delay = AppSettings.defaultTimerDelay
+
         if panel == nil { create() }
         guard let panel else { return }
 
