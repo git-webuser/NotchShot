@@ -340,15 +340,6 @@ private struct TrayScreenshotCell: View {
         }
         .frame(width: width, height: height)
         .contentShape(Rectangle())
-        .overlay(alignment: .topTrailing) {
-            TrayDeleteBadge(action: {
-                withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
-            }, isPressed: $isBadgeActive)
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .offset(x: badgeBleed, y: -badgeBleed)
-        }
         .overlay(alignment: .bottom) {
             Text(displayName)
                 .font(.system(size: 11, weight: .regular, design: .default))
@@ -389,6 +380,17 @@ private struct TrayScreenshotCell: View {
                     }
                 }
             )
+        }
+        // Badge is placed AFTER TrayDragShim so it sits above the NSView in z-order
+        // and receives SwiftUI hit-testing before the NSView can intercept.
+        .overlay(alignment: .topTrailing) {
+            TrayDeleteBadge(action: {
+                withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
+            }, isPressed: $isBadgeActive)
+            .opacity(isHovered ? 1 : 0)
+            .allowsHitTesting(isHovered)
+            .offset(x: badgeBleed, y: -badgeBleed)
         }
         .contextMenu {
             Button("Open") {
@@ -589,7 +591,7 @@ final class TrayDragShimView: NSView, NSDraggingSource {
     var dragImage: NSImage?
     var cellSize: CGSize = .zero
     /// Size of the top-right corner to leave for the delete badge
-    var badgeExcludeSize: CGFloat = 22
+    var badgeExcludeSize: CGFloat = 16
 
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
@@ -615,43 +617,44 @@ final class TrayDragShimView: NSView, NSDraggingSource {
     /// Match SwiftUI coordinate system: origin top-left, y increases downward
     override var isFlipped: Bool { true }
 
+    private var eventMonitor: Any?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        updateTrackingAreas()
+        if window != nil {
+            eventMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.mouseMoved, .mouseEntered, .mouseExited, .leftMouseDragged]
+            ) { [weak self] event in
+                self?.updateHoverState()
+                return event  // never consume — drag/click still work as before
+            }
+        } else {
+            if let m = eventMonitor { NSEvent.removeMonitor(m); eventMonitor = nil }
+            DispatchQueue.main.async { self.isHovered = false }
+        }
     }
 
-    override func layout() {
-        super.layout()
-        updateTrackingAreas()
+    deinit {
+        if let m = eventMonitor { NSEvent.removeMonitor(m) }
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        guard !bounds.isEmpty else { return }
-        // isFlipped=true: origin top-left, y increases downward.
-        // The badge is rendered above the cell (y < 0) via SwiftUI offset.
-        // Extend the tracking rect upward so mouseEntered/Exited stays true
-        // while the cursor is over the badge.
-        let bleed = badgeExcludeSize
-        let expanded = bounds.union(NSRect(x: bounds.maxX - bleed,
-                                           y: -bleed,
-                                           width: bleed + bleed,
-                                           height: bleed))
-        addTrackingArea(NSTrackingArea(
-            rect: expanded,
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self,
-            userInfo: nil
-        ))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        DispatchQueue.main.async { self.isHovered = true }
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        DispatchQueue.main.async { self.isHovered = false }
+    private func updateHoverState() {
+        guard let window else { return }
+        let pt = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        // Include badge bleed zone: badge is offset +bleed right, -bleed up.
+        // In flipped coords (y=0 at top, increases down) "up" = negative y.
+        let bleed = CGFloat(badgeExcludeSize) // reuse existing constant (16)
+        let hoverRect = NSRect(
+            x: bounds.minX,
+            y: -bleed,                        // extend upward past top edge
+            width: bounds.width + bleed,      // extend rightward past right edge
+            height: bounds.height + bleed
+        )
+        let hovering = hoverRect.contains(pt)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isHovered != hovering else { return }
+            self.isHovered = hovering
+        }
     }
 
     /// Exclude top-right badge corner so the delete badge can receive events
