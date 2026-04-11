@@ -26,7 +26,6 @@ struct GeneralSettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 130)
                     .onChange(of: settingsAppearance) { _, newValue in
                         SettingsWindowController.shared.applyAppearance(newValue)
                     }
@@ -45,7 +44,6 @@ struct GeneralSettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 130)
                     .disabled(!showThumbnailHUD)
                 }
             } header: {

@@ -40,7 +40,6 @@ struct TraySettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 100)
                 }
             }
         }

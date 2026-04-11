@@ -43,7 +43,6 @@ struct CaptureSettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 100)
                 }
             }
 
@@ -90,7 +89,6 @@ struct CaptureSettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 150)
                 }
 
                 LabeledContent("Timer delay") {
@@ -101,7 +99,6 @@ struct CaptureSettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
-                    .frame(width: 150)
                 }
             }
         }
