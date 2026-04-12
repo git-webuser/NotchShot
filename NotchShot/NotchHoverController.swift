@@ -327,10 +327,11 @@ final class NotchHoverController: NSObject {
 
     private func preferredScreenForOpen() -> NSScreen {
         let mouse = NSEvent.mouseLocation
-        guard let screen = screenForPoint(mouse) ?? NSScreen.main ?? NSScreen.screens.first else {
-            fatalError("No screens available")
+        if let screen = screenForPoint(mouse) ?? NSScreen.main ?? NSScreen.screens.first {
+            return screen
         }
-        return screen
+        assertionFailure("[NotchHoverController] preferredScreenForOpen: no screens available")
+        return NSScreen.screens[0]  // недостижимо в штатной работе
     }
 
     private func screenForPoint(_ p: NSPoint) -> NSScreen? {

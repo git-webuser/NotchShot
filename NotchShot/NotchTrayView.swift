@@ -131,7 +131,10 @@ struct NotchTrayView: View {
                             badgeBleed: badgeBleed,
                             labelOffset: labelOffset,
                             cornerRadius: metrics.buttonRadius,
-                            onRemove: { trayModel.remove(id: shot.id) }
+                            onRemove: {
+                                trayModel.remove(id: shot.id)
+                                NSWorkspace.shared.recycle([shot.url])
+                            }
                         )
                     case .color(let c):
                         TrayColorCell(
@@ -167,6 +170,8 @@ struct NotchTrayView: View {
     private var backButton: some View {
         PanelIconButton(systemName: "chevron.left", size: 14, weight: .semibold, action: handleBack)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
+            .help("Назад к панели")
+            .accessibilityLabel("Назад к панели")
     }
 
     private var trayIconButton: some View {
@@ -176,15 +181,21 @@ struct NotchTrayView: View {
             action: handleBack
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        .help("Назад к панели")
+        .accessibilityLabel("Назад к панели")
     }
 
     private var moreButton: some View {
         PanelMoreMenuButton(metrics: metrics)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
+            .help("Настройки и выход")
+            .accessibilityLabel("Настройки и выход")
     }
 
     private var schemeMenu: some View {
         TraySchemeMenuButton(scheme: $scheme, metrics: metrics)
+            .help("Формат цвета")
+            .accessibilityLabel("Формат цвета: \(scheme.title)")
     }
 }
 
@@ -212,6 +223,8 @@ struct TrayDeleteBadge: View {
                     .onChanged { _ in isPressed = true }
                     .onEnded   { _ in action() }
             )
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(systemName == "xmark.circle.fill" ? "Переместить в корзину" : (isOn ? "Открепить" : "Закрепить"))
     }
 }
 
@@ -407,7 +420,7 @@ private struct TrayScreenshotCell: View {
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
             Button("Copy") { NSPasteboard.general.writeImage(at: shot.url) }
             Divider()
-            Button("Remove from Tray") {
+            Button("Move to Trash") {
                 withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
             }
@@ -430,6 +443,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
         button.pullsDown        = true
         button.autoresizingMask = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+        button.setAccessibilityLabel("Формат цвета")
 
         // pullsDown=true: первый пункт используется как скрытый заголовок кнопки,
         // добавляем пустой placeholder чтобы пункты выбора начинались с HEX.

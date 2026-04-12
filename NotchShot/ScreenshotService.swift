@@ -65,7 +65,14 @@ final class ScreenshotService {
             if AppSettings.includeCursor { args.append("-C") }
             args.append(tmpURL.path)
             let ok = self.runScreencapture(arguments: args)
-            guard ok, self.fm.fileExists(atPath: tmpURL.path) else { return }
+            guard ok else {
+                print("[ScreenshotService] screencapture failed, args: \(args)")
+                return
+            }
+            guard self.fm.fileExists(atPath: tmpURL.path) else {
+                print("[ScreenshotService] output file missing: \(tmpURL.path)")
+                return
+            }
             self.handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
         }
     }
@@ -103,15 +110,21 @@ final class ScreenshotService {
         args.append(tmpURL.path)
 
         let ok = runScreencapture(arguments: args)
-        guard ok, fm.fileExists(atPath: tmpURL.path) else { return }
+        guard ok else {
+            print("[ScreenshotService] screencapture failed, args: \(args)")
+            return
+        }
+        guard fm.fileExists(atPath: tmpURL.path) else {
+            print("[ScreenshotService] output file missing: \(tmpURL.path)")
+            return
+        }
         handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
     }
 
     private func handleCapturedFile(at tmpURL: URL, preferredScreen: NSScreen?) {
         do {
             let finalURL = try AppSettings.withSaveDirectoryAccess { outputDir in
-                let dest = outputDir.appendingPathComponent(makeFilename())
-                if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                let dest = uniqueDestURL(in: outputDir, filename: makeFilename())
                 try fm.moveItem(at: tmpURL, to: dest)
                 return dest
             }
@@ -156,8 +169,12 @@ final class ScreenshotService {
             do {
                 try process.run()
                 process.waitUntilExit()
+                if process.terminationStatus != 0 {
+                    print("[ScreenshotService] screencapture exited with status \(process.terminationStatus), args: \(arguments)")
+                }
                 return process.terminationStatus == 0
             } catch {
+                print("[ScreenshotService] screencapture launch failed: \(error), args: \(arguments)")
                 return false
             }
         }
@@ -165,10 +182,25 @@ final class ScreenshotService {
 
     private func makeFilename() -> String {
         AppSettings.resolveFilename(
-            template: AppSettings.filenameTemplate,
-            date:     Date(),
-            format:   AppSettings.fileFormat
+            preset:  AppSettings.filenamePreset,
+            date:    Date(),
+            counter: AppSettings.nextCaptureCounter(),
+            format:  AppSettings.fileFormat
         )
+    }
+
+    /// Возвращает URL для сохранения, избегая перезаписи существующих файлов.
+    /// При коллизии добавляет суффикс " 2", " 3" и т.д.
+    private func uniqueDestURL(in dir: URL, filename: String) -> URL {
+        let base = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent
+        let ext  = URL(fileURLWithPath: filename).pathExtension
+        let url  = dir.appendingPathComponent(filename)
+        guard fm.fileExists(atPath: url.path) else { return url }
+        for n in 2..<1000 {
+            let candidate = dir.appendingPathComponent("\(base) \(n).\(ext)")
+            if !fm.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return url
     }
 
     private func fileExtension() -> String {

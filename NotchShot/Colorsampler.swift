@@ -127,7 +127,14 @@ final class ColorSampler {
             eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
             callback: escTapCallback,
             userInfo: selfPtr
-        ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) {
+        ) {
+            guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+                // tap создан, но source не получился — явно выключаем порт,
+                // чтобы не оставлять его висеть в системе.
+                CGEvent.tapEnable(tap: tap, enable: false)
+                print("[ColorSampler] CFMachPortCreateRunLoopSource failed")
+                return
+            }
             escEventTap = tap
             escEventTapSource = source
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

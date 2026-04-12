@@ -178,7 +178,6 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
 
     private let dragSource            = DragSource()
     private var fileDragStarted       = false
-    private var panelOriginAtDown     = NSPoint.zero
     private var mouseDownScreenPoint  = NSPoint.zero
     private var mouseDownTime         = Date()
 
@@ -195,10 +194,9 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
     // MARK: Mouse tracking
 
     override func mouseDown(with event: NSEvent) {
-        mouseDownTime         = Date()
-        mouseDownScreenPoint  = NSEvent.mouseLocation
-        panelOriginAtDown     = window?.frame.origin ?? .zero
-        fileDragStarted       = false
+        mouseDownTime        = Date()
+        mouseDownScreenPoint = NSEvent.mouseLocation
+        fileDragStarted      = false
         super.mouseDown(with: event)
     }
 
@@ -211,62 +209,23 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
         let dist    = hypot(dx, dy)
         let elapsed = Date().timeIntervalSince(mouseDownTime)
 
-        // After a deliberate press-and-hold the user may be dragging the file.
-        // Require ≥ 200 ms hold so that a quick rightward swipe always dismisses.
+        // После удержания ≥ 200 мс пользователь может тащить файл.
         if let url = fileURL,
            elapsed >= 0.20,
            dist >= 8,
            dist / max(elapsed, 0.001) < 600 {
             startFileDrag(url: url, event: event)
-            return
         }
-
-        // Dismiss swipe: slide panel to the right only (clamp leftward movement).
-        guard let panel = window as? NSPanel else { return }
-        let clampedDx = max(0, dx)
-        panel.setFrameOrigin(NSPoint(x: panelOriginAtDown.x + clampedDx,
-                                     y: panelOriginAtDown.y))
-        panel.alphaValue = max(0.4, 1.0 - clampedDx / 220.0)
     }
 
     override func mouseUp(with event: NSEvent) {
         defer { super.mouseUp(with: event) }
-        guard !fileDragStarted, let panel = window as? NSPanel else { return }
-
-        let dx = NSEvent.mouseLocation.x - mouseDownScreenPoint.x
-
-        if dx > 80 {
-            // Fling the panel off to the right, then dismiss.
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.18
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                panel.animator().setFrameOrigin(
-                    NSPoint(x: panelOriginAtDown.x + dx * 2.5, y: panelOriginAtDown.y))
-                panel.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
-                self?.onDismiss?()
-            }
-        } else {
-            // Not far enough — spring back to the resting position.
-            panel.alphaValue = 1.0
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.32
-                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
-                panel.animator().setFrameOrigin(panelOriginAtDown)
-            }
-        }
     }
 
     // MARK: File drag
 
     private func startFileDrag(url: URL, event: NSEvent) {
         fileDragStarted = true
-
-        // Reset panel to resting position before the drag icon appears.
-        if let panel = window as? NSPanel {
-            panel.setFrameOrigin(panelOriginAtDown)
-            panel.alphaValue = 1.0
-        }
 
         let saveDir     = AppSettings.saveDirectoryURL
         let hasBookmark = UserDefaults.standard.data(

@@ -13,6 +13,22 @@ private func _CGSDefaultConnection() -> Int32
 private func CGSSetConnectionProperty(
     _ cid: Int32, _ targetCid: Int32, _ key: CFString, _ value: CFTypeRef)
 
+// MARK: - ESC monitor helper
+
+/// Устанавливает глобальный + локальный мониторы клавиши ESC (keyCode 53).
+/// Токены добавляются в `monitors`; вызывающий код обязан удалить их через
+/// `NSEvent.removeMonitor` при завершении работы.
+private func installEscMonitors(into monitors: inout [Any], action: @escaping () -> Void) {
+    if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { event in
+        if event.keyCode == 53 { action() }
+    }) { monitors.append(m) }
+
+    if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { event in
+        if event.keyCode == 53 { action(); return nil }
+        return event
+    }) { monitors.append(m) }
+}
+
 // MARK: - SelectionOverlay
 
 /// Full-screen drag-to-select overlay.
@@ -45,14 +61,7 @@ final class SelectionOverlay {
         panel.contentView = view
         self.panel = panel
 
-        if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            if event.keyCode == 53 { self?.cancel() }
-        }) { escMonitors.append(m) }
-
-        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            if event.keyCode == 53 { self?.cancel(); return nil }
-            return event
-        }) { escMonitors.append(m) }
+        installEscMonitors(into: &escMonitors) { [weak self] in self?.cancel() }
 
         let cursor = makeScreenshotCrosshairCursor()
         cursor.push()
@@ -213,14 +222,7 @@ final class WindowPickerOverlay {
         panel.contentView = view
         self.panel = panel
 
-        // ESC — глобальный + локальный мониторы
-        if let m = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            if event.keyCode == 53 { self?.cancel() }
-        }) { escMonitors.append(m) }
-        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            if event.keyCode == 53 { self?.cancel(); return nil }
-            return event
-        }) { escMonitors.append(m) }
+        installEscMonitors(into: &escMonitors) { [weak self] in self?.cancel() }
 
         NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
@@ -237,6 +239,8 @@ final class WindowPickerOverlay {
         // Прячем курсор и повторяем каждые ~16 мс через .common — срабатывает
         // и в .default, и в .eventTracking. Каждый вызов учитывается в hideCount,
         // чтобы dismiss() мог точно восстановить баланс.
+        hideTimer?.invalidate()
+        hideTimer = nil
         hideCount = 0
         hideCursor()
         let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in

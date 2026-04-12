@@ -137,10 +137,33 @@ struct NotchMetrics {
     }
 
     static func fallback() -> NotchMetrics {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            fatalError("No screens available")
+        if let screen = NSScreen.main ?? NSScreen.screens.first {
+            return from(screen: screen)
         }
-        return from(screen: screen)
+        // Экраны недоступны (sleep, logout, headless-тест).
+        // Возвращаем безопасные константы для MacBook Pro с нотчем.
+        print("[NotchMetrics] fallback: no screens available, using hardcoded defaults")
+        return NotchMetrics(
+            scale: 2.0,
+            hasNotch: true,
+            notchGap: 184,
+            panelHeight: 34,
+            panelRadius: 10,
+            outerSideInset: 5,
+            edgeSafe: 20,
+            leftMinToNotch: 36,
+            rightMinFromNotch: 12,
+            cellWidth: 32,
+            iconSize: 24,
+            gap: 4,
+            timerIconToValueGap: 2,
+            timerValueWidth: 16,
+            timerLeadingInsetWithValue: 4,
+            timerTrailingInsetWithValue: 8,
+            captureButtonWidth: 71,
+            buttonHeight: 24,
+            buttonRadius: 6
+        )
     }
 }
 

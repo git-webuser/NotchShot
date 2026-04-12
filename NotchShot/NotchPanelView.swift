@@ -173,6 +173,8 @@ struct NotchPanelView: View {
             action: onClose
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        .help("Закрыть панель")
+        .accessibilityLabel("Закрыть панель")
     }
 
     private var modeMenuCell: some View {
@@ -182,6 +184,8 @@ struct NotchPanelView: View {
             onPickColor: onPickColor
         )
         .animation(nil, value: model.mode)
+        .help("Режим захвата")
+        .accessibilityLabel("Режим захвата: \(model.mode.title)")
     }
 
     private var timerMenuCell: some View {
@@ -194,6 +198,8 @@ struct NotchPanelView: View {
             cellWidth: metrics.timerCellWidth(for: shortLabel)
         )
         .animation(nil, value: model.delay)
+        .help("Задержка перед захватом")
+        .accessibilityLabel(shortLabel == nil ? "Без задержки" : "Задержка \(shortLabel ?? "")")
     }
 
     private var trayButtonCell: some View {
@@ -205,11 +211,15 @@ struct NotchPanelView: View {
             action: onToggleTray
         )
         .frame(width: metrics.cellWidth, height: metrics.iconSize)
+        .help(isTrayOpen ? "Скрыть трей" : "Показать трей")
+        .accessibilityLabel(isTrayOpen ? "Скрыть трей" : "Показать трей")
     }
 
     private var moreCell: some View {
         PanelMoreMenuButton(metrics: metrics)
             .frame(width: metrics.cellWidth, height: metrics.iconSize)
+            .help("Настройки и выход")
+            .accessibilityLabel("Настройки и выход")
     }
 
     private var captureButton: some View {
@@ -217,6 +227,8 @@ struct NotchPanelView: View {
             metrics: metrics,
             action: { onCapture(model.mode, model.delay) }
         )
+        .accessibilityLabel("Сделать скриншот")
+        .accessibilityHint("Захватить экран в режиме \(model.mode.title)")
     }
 
     // MARK: - Helpers
@@ -246,6 +258,7 @@ private struct PopUpModeButtonWrapper: NSViewRepresentable {
         button.pullsDown         = false
         button.autoresizingMask  = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+        button.setAccessibilityLabel("Режим захвата")
 
         for mode in CaptureMode.allCases {
             button.addItem(withTitle: mode.title)
@@ -331,6 +344,7 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
         button.pullsDown         = false
         button.autoresizingMask  = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+        button.setAccessibilityLabel("Задержка захвата")
 
         for delay in CaptureDelay.allCases {
             button.addItem(withTitle: delay.title)

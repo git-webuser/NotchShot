@@ -4,7 +4,7 @@ import AppKit
 struct CaptureSettingsView: View {
     @AppStorage(AppSettings.Keys.saveDirectory)       private var saveDirectory       = ""
     @AppStorage(AppSettings.Keys.fileFormat)          private var fileFormat          = "png"
-    @AppStorage(AppSettings.Keys.filenameTemplate)    private var filenameTemplate    = "{MON}·{DD}-{HH}·{mm}·{ss}"
+    @AppStorage(AppSettings.Keys.filenamePreset)      private var filenamePreset      = FilenamePreset.compact.rawValue
     @AppStorage(AppSettings.Keys.playSound)           private var playSound           = true
     @AppStorage(AppSettings.Keys.copyToClipboard)     private var copyToClipboard     = true
     @AppStorage(AppSettings.Keys.includeCursor)       private var includeCursor       = false
@@ -18,8 +18,17 @@ struct CaptureSettingsView: View {
             : URL(fileURLWithPath: saveDirectory).lastPathComponent
     }
 
+    private var selectedPreset: FilenamePreset {
+        FilenamePreset(rawValue: filenamePreset) ?? .compact
+    }
+
     private var filenamePreview: String {
-        AppSettings.resolveFilename(template: filenameTemplate, date: Date(), format: fileFormat)
+        AppSettings.resolveFilename(
+            preset: selectedPreset,
+            date: Date(),
+            counter: AppSettings.captureCounter + 1,
+            format: fileFormat
+        )
     }
 
     var body: some View {
@@ -47,23 +56,14 @@ struct CaptureSettingsView: View {
             }
 
             Section("Filename") {
-                LabeledContent("Template") {
-                    TextField("", text: $filenameTemplate)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 220)
-                        .font(.system(.body, design: .monospaced))
-                }
-
-                LabeledContent("Tokens") {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("{YYYY} {MM} {MON} {DD} {HH} {mm} {ss}")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        Text("MM = 01–12  ·  MON = Jan–Dec")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.tertiary)
+                Picker("Style", selection: $filenamePreset) {
+                    ForEach(FilenamePreset.allCases, id: \.rawValue) { preset in
+                        Text(preset.title)
+                            .font(.system(.body, design: .monospaced))
+                            .tag(preset.rawValue)
                     }
                 }
+                .pickerStyle(.radioGroup)
 
                 LabeledContent("Preview") {
                     Text(filenamePreview)

@@ -18,7 +18,9 @@ enum AppSettings {
         static let saveDirectory         = "saveDirectory"
         static let saveDirectoryBookmark = "saveDirectoryBookmark"
         static let fileFormat            = "fileFormat"
-        static let filenameTemplate      = "filenameTemplate"
+        static let filenameTemplate      = "filenameTemplate"  // legacy, не используется
+        static let filenamePreset        = "filenamePreset"
+        static let captureCounter        = "captureCounter"
         static let playSound             = "playSound"
         static let copyToClipboard       = "copyToClipboard"
         static let includeCursor         = "includeCursor"
@@ -79,10 +81,34 @@ enum AppSettings {
     static func withSaveDirectoryAccess<T>(_ block: (URL) throws -> T) throws -> T {
         let url = saveDirectoryURL
         let hasBookmark = UserDefaults.standard.data(forKey: Keys.saveDirectoryBookmark) != nil
-        let accessing = hasBookmark && url.startAccessingSecurityScopedResource()
+        var accessing = false
+        if hasBookmark {
+            accessing = url.startAccessingSecurityScopedResource()
+            guard accessing else {
+                print("[AppSettings] startAccessingSecurityScopedResource failed for: \(url.path)")
+                throw AppSettingsError.securityScopeAccessDenied(url)
+            }
+        }
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         return try block(url)
     }
+    static var filenamePreset: FilenamePreset {
+        let raw = UserDefaults.standard.string(forKey: Keys.filenamePreset) ?? "compact"
+        return FilenamePreset(rawValue: raw) ?? .compact
+    }
+
+    /// Читает текущее значение счётчика без инкремента — для превью в настройках.
+    static var captureCounter: Int {
+        UserDefaults.standard.integer(forKey: Keys.captureCounter)
+    }
+
+    /// Атомарно инкрементирует и возвращает счётчик — вызывать только при реальном захвате.
+    static func nextCaptureCounter() -> Int {
+        let n = UserDefaults.standard.integer(forKey: Keys.captureCounter) + 1
+        UserDefaults.standard.set(n, forKey: Keys.captureCounter)
+        return n
+    }
+
     static var fileFormat: String {
         UserDefaults.standard.string(forKey: Keys.fileFormat) ?? "png"
     }
@@ -164,11 +190,12 @@ enum AppSettings {
     }
 
     // MARK: Filename resolver
-    static func resolveFilename(template: String, date: Date, format: String) -> String {
+
+    static func resolveFilename(preset: FilenamePreset, date: Date, counter: Int, format: String) -> String {
         let cal = Calendar(identifier: .gregorian)
         let d   = cal.dateComponents(in: .current, from: date)
-        let months = ["JAN","FEB","MAR","APR","MAY","JUN",
-                      "JUL","AUG","SEP","OCT","NOV","DEC"]
+        let months = ["Jan","Feb","Mar","Apr","May","Jun",
+                      "Jul","Aug","Sep","Oct","Nov","Dec"]
         let mon  = months[max(0, min((d.month ?? 1) - 1, 11))]
         let yyyy = String(format: "%04d", d.year ?? 2024)
         let mm   = String(format: "%02d", d.month ?? 1)
@@ -176,26 +203,16 @@ enum AppSettings {
         let hh   = String(format: "%02d", d.hour ?? 0)
         let min  = String(format: "%02d", d.minute ?? 0)
         let ss   = String(format: "%02d", d.second ?? 0)
+        let ext  = format == "jpg" ? "jpg" : (format == "tiff" ? "tiff" : "png")
 
-        let ext = format == "jpg" ? "jpg" : (format == "tiff" ? "tiff" : "png")
-
-        var name = template
-        name = name.replacingOccurrences(of: "{YYYY}", with: yyyy)
-        name = name.replacingOccurrences(of: "{MM}",   with: mm)
-        name = name.replacingOccurrences(of: "{MON}",  with: mon)
-        name = name.replacingOccurrences(of: "{DD}",   with: dd)
-        name = name.replacingOccurrences(of: "{HH}",   with: hh)
-        name = name.replacingOccurrences(of: "{mm}",   with: min)
-        name = name.replacingOccurrences(of: "{ss}",   with: ss)
-
-        // Strip disallowed filename chars
-        let allowed = CharacterSet.alphanumerics
-            .union(.init(charactersIn: "-_·. "))
-        let safe = name.unicodeScalars
-            .filter { allowed.contains($0) }
-            .map { Character($0) }
-        let base = String(safe).trimmingCharacters(in: .whitespaces)
-        return (base.isEmpty ? "Screenshot" : base) + ".\(ext)"
+        let base: String
+        switch preset {
+        case .compact:  base = "\(mon)·\(dd)-\(hh)·\(min)·\(ss)"
+        case .iso:      base = "\(yyyy)-\(mm)-\(dd) \(hh)-\(min)-\(ss)"
+        case .numbered: base = "\(yyyy)-\(mm)-\(dd) #\(counter)"
+        case .dense:    base = "\(yyyy)\(mm)\(dd)-\(hh)\(min)\(ss)"
+        }
+        return base + ".\(ext)"
     }
 }
 
@@ -272,6 +289,37 @@ extension ColorSchemeType: RawRepresentable {
         }
     }
     public var rawValue: String { title }
+}
+
+// MARK: - FilenamePreset
+
+enum FilenamePreset: String, CaseIterable {
+    case compact  = "compact"   // Apr·12-14·30·05
+    case iso      = "iso"       // 2024-04-12 14-30-05
+    case numbered = "numbered"  // 2024-04-12 #98
+    case dense    = "dense"     // 20240412-143005
+
+    var title: String {
+        switch self {
+        case .compact:  return "Apr·12 — 14·30·05"
+        case .iso:      return "2024-04-12 14-30-05"
+        case .numbered: return "2024-04-12 #98"
+        case .dense:    return "20240412-143005"
+        }
+    }
+}
+
+// MARK: - AppSettingsError
+
+enum AppSettingsError: LocalizedError {
+    case securityScopeAccessDenied(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .securityScopeAccessDenied(let url):
+            return "Нет доступа к папке «\(url.lastPathComponent)». Переназначьте папку сохранения в настройках."
+        }
+    }
 }
 
 // MARK: - NSColor hex init (for tray restore)

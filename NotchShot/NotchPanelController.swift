@@ -116,6 +116,7 @@ final class NotchPanelController: NSObject {
     private(set) var isExpanded: Bool = false
     private var escEventTap: CFMachPort?
     private var escEventTapSource: CFRunLoopSource?
+    private var notificationObservers: [NSObjectProtocol] = []
 
     // MARK: Internal (accessible from extension files)
     var currentScreen: NSScreen?
@@ -173,33 +174,27 @@ final class NotchPanelController: NSObject {
         screenshot.onDelete = { [weak self] url in
             self?.trayModel.remove(screenshotURL: url)
         }
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(menuDidBeginTracking),
-            name: NSMenu.didBeginTrackingNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(menuDidEndTracking),
-            name: NSMenu.didEndTrackingNotification,
-            object: nil
-        )
+        let t1 = NotificationCenter.default.addObserver(
+            forName: NSMenu.didBeginTrackingNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isMenuTracking = true
+        }
+        let t2 = NotificationCenter.default.addObserver(
+            forName: NSMenu.didEndTrackingNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.isMenuTracking = false
+        }
+        notificationObservers = [t1, t2]
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        notificationObservers.removeAll()
         removeEscMonitor()
-    }
-
-    @objc
-    private func menuDidBeginTracking() {
-        isMenuTracking = true
-    }
-
-    @objc
-    private func menuDidEndTracking() {
-        isMenuTracking = false
     }
 
     // MARK: - Public API
@@ -240,11 +235,26 @@ final class NotchPanelController: NSObject {
         interactionState.isEnabled = false
         interactionState.contentVisibility = 0.0
         panel.alphaValue = 1
+
+        // Позиционируем панель на нужном экране ДО orderFrontRegardless.
+        // macOS привязывает окно к пространству в момент orderFront исходя из
+        // текущего фрейма. Если setFrame вызвать после, окно окажется на том
+        // пространстве, где панель была в прошлый раз — особенно заметно
+        // после долгого простоя или выхода из сна.
+        if metrics.hasNotch {
+            panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: false)
+        } else {
+            let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
+            panel.setFrame(frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight), display: false)
+        }
+
+        // Переприсваиваем collectionBehavior чтобы macOS сбросила устаревшую
+        // привязку к пространству, накопившуюся после orderOut(nil).
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.orderFrontRegardless()
 
         if metrics.hasNotch {
             isExpanded = false
-            panel.setFrame(frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight), display: true)
 
             let target = frameForWidth(clampedWidth(currentWidthForCurrentRoute, on: screen), on: screen, height: trayPanelHeight)
             NSAnimationContext.runAnimationGroup { ctx in
@@ -264,9 +274,7 @@ final class NotchPanelController: NSObject {
 
             let w = clampedWidth(currentWidthForCurrentRoute, on: screen)
             let h = trayPanelHeight
-            let hidden = frameNoNotchHiddenAbove(width: w, on: screen, height: h)
             let visible = frameForWidth(w, on: screen, height: h)
-            panel.setFrame(hidden, display: true)
 
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.20
