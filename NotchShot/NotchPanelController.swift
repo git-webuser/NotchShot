@@ -188,13 +188,40 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             self?.isMenuTracking = false
         }
-        notificationObservers = [t1, t2]
+        // Space switched — если панель видима, перепривязываем её к активному
+        // пространству. Без этого после длительной работы / выхода из сна
+        // macOS может оставить панель залипшей на старом Space и хоткей
+        // показа перестаёт отрабатывать на других рабочих столах.
+        let t3 = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, let panel = self.panel, panel.isVisible else { return }
+            self.rebindPanelToActiveSpace(panel)
+            panel.orderFrontRegardless()
+        }
+        notificationObservers = [t1, t2, t3]
     }
 
     deinit {
-        notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        // Часть наблюдателей зарегистрирована в NSWorkspace.notificationCenter,
+        // часть — в NotificationCenter.default. Снимаем в обоих.
+        notificationObservers.forEach {
+            NotificationCenter.default.removeObserver($0)
+            NSWorkspace.shared.notificationCenter.removeObserver($0)
+        }
         notificationObservers.removeAll()
         removeEscMonitor()
+    }
+
+    /// Форсирует пересчёт Space-binding у панели. Просто переприсваивание того
+    /// же collectionBehavior после `orderOut` не помогает: AppKit считает, что
+    /// ничего не изменилось. Тумблер через пустой набор заставляет систему
+    /// заново привязать окно к активному пространству.
+    private func rebindPanelToActiveSpace(_ panel: NSPanel) {
+        panel.collectionBehavior = []
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     }
 
     // MARK: - Public API
@@ -248,9 +275,11 @@ final class NotchPanelController: NSObject {
             panel.setFrame(frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight), display: false)
         }
 
-        // Переприсваиваем collectionBehavior чтобы macOS сбросила устаревшую
-        // привязку к пространству, накопившуюся после orderOut(nil).
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        // Форсируем пересчёт Space-binding через тумблер пустого набора.
+        // Убран .stationary: этот флаг предназначен для обоев / иконок рабочего
+        // стола и в сочетании с .canJoinAllSpaces даёт «залипание» панели на
+        // одном пространстве после длительной работы и выхода из сна.
+        rebindPanelToActiveSpace(panel)
         panel.orderFrontRegardless()
 
         if metrics.hasNotch {
@@ -413,7 +442,7 @@ final class NotchPanelController: NSObject {
 
         panel.isFloatingPanel = true
         panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false

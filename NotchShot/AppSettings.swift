@@ -40,6 +40,7 @@ enum AppSettings {
         static let hotkeyFullscreenEnabled = "hotkeyFullscreenEnabled"
         static let hotkeyWindowEnabled     = "hotkeyWindowEnabled"
         static let hotkeyColorEnabled      = "hotkeyColorEnabled"
+        static let hotkeyHUDFormatEnabled  = "hotkeyHUDFormatEnabled"
     }
 
     // MARK: General
@@ -165,6 +166,9 @@ enum AppSettings {
     static var hotkeyColorEnabled: Bool {
         UserDefaults.standard.object(forKey: Keys.hotkeyColorEnabled) as? Bool ?? true
     }
+    static var hotkeyHUDFormatEnabled: Bool {
+        UserDefaults.standard.object(forKey: Keys.hotkeyHUDFormatEnabled) as? Bool ?? true
+    }
 
     // MARK: Launch at Login
     static func setLaunchAtLogin(_ enabled: Bool) {
@@ -271,6 +275,19 @@ enum SettingsAppearance: String, CaseIterable {
         case .system: return nil
         case .light:  return NSAppearance(named: .aqua)
         case .dark:   return NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
+// MARK: - ColorSchemeType ↔ HUDColorFormat
+extension ColorSchemeType {
+    var hudFormat: HUDColorFormat {
+        switch self {
+        case .hex:  return .hex
+        case .rgb:  return .rgb
+        case .hsl:  return .hsl
+        case .hsb:  return .hsb
+        case .cmyk: return .cmyk
         }
     }
 }

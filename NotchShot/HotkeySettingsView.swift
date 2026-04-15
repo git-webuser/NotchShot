@@ -6,6 +6,7 @@ struct HotkeySettingsView: View {
     @AppStorage(AppSettings.Keys.hotkeyFullscreenEnabled) private var fullscreenEnabled = true
     @AppStorage(AppSettings.Keys.hotkeyWindowEnabled)     private var windowEnabled     = true
     @AppStorage(AppSettings.Keys.hotkeyColorEnabled)      private var colorEnabled      = true
+    @AppStorage(AppSettings.Keys.hotkeyHUDFormatEnabled)  private var hudFormatEnabled  = true
 
     var body: some View {
         Form {
@@ -15,6 +16,9 @@ struct HotkeySettingsView: View {
                 HotkeyRow(action: "Fullscreen Screenshot",combo: "⌃⌥⌘B", isEnabled: $fullscreenEnabled)
                 HotkeyRow(action: "Window Screenshot",    combo: "⌃⌥⌘G", isEnabled: $windowEnabled)
                 HotkeyRow(action: "Pick Color",           combo: "⌃⌥⌘C", isEnabled: $colorEnabled)
+            }
+            Section("Color HUD") {
+                HotkeyRow(action: "Cycle Color Format",   combo: "F",     isEnabled: $hudFormatEnabled)
             }
         }
         .formStyle(.grouped)

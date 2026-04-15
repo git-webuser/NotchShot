@@ -9,7 +9,7 @@ final class ColorSampler {
     var onColorChanged: ((NSColor, NSPoint, MagnifierData?) -> Void)?
     var onConfirmed: ((NSColor) -> Void)?
     var onCancelled: (() -> Void)?
-    var format: HUDColorFormat = .hex
+    var format: HUDColorFormat = AppSettings.defaultColorFormat.hudFormat
 
     private var mouseMonitor: Any?
     private var localMouseMonitor: Any?
@@ -191,7 +191,7 @@ final class ColorSampler {
         }
         switch event.keyCode {
         case 53: cancel()
-        case 3:
+        case 3 where AppSettings.hotkeyHUDFormatEnabled:
             let all = HUDColorFormat.allCases
             if let idx = all.firstIndex(of: format) {
                 format = all[(idx + 1) % all.count]
