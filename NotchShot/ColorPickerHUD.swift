@@ -71,14 +71,19 @@ struct MagnifierData: Equatable {
     static let empty = MagnifierData(pixels: [], gridSize: 3)
 
     static func == (lhs: MagnifierData, rhs: MagnifierData) -> Bool {
-        // Сравниваем только размер — цвет центра достаточен для refresh
-        lhs.gridSize == rhs.gridSize && lhs.pixels.count == rhs.pixels.count
+        guard lhs.gridSize == rhs.gridSize,
+              lhs.pixels.count == rhs.pixels.count else { return false }
+        for (rowL, rowR) in zip(lhs.pixels, rhs.pixels) {
+            guard rowL.count == rowR.count else { return false }
+            for (cL, cR) in zip(rowL, rowR) where !cL.isEqual(cR) { return false }
+        }
+        return true
     }
 }
 
 // MARK: - ColorPickerHUDView
 
-struct ColorPickerHUDView: View {
+struct ColorPickerHUDView: View, Equatable {
     let phase: ColorPickerHUDPhase
     let format: HUDColorFormat
     let magnifier: MagnifierData
@@ -123,38 +128,52 @@ struct ColorPickerHUDView: View {
         }
     }
 
+    /// Grid-line path is constant for the lifetime of the app — computed once.
+    private static let gridLinePath: Path = {
+        let n  = 3
+        let cs = CGFloat(14)
+        var p  = Path()
+        for i in 1..<n {
+            let v = CGFloat(i) * cs
+            p.move(to: CGPoint(x: v, y: 0));        p.addLine(to: CGPoint(x: v, y: CGFloat(n) * cs))
+            p.move(to: CGPoint(x: 0, y: v));        p.addLine(to: CGPoint(x: CGFloat(n) * cs, y: v))
+        }
+        return p
+    }()
+
     private var liveMagnifier: some View {
         ZStack {
-            if !magnifier.pixels.isEmpty {
-                Canvas { ctx, _ in
-                    for row in 0..<gridSize {
-                        guard row < magnifier.pixels.count else { break }
-                        for col in 0..<gridSize {
-                            guard col < magnifier.pixels[row].count else { break }
-                            ctx.fill(Path(CGRect(x: CGFloat(col)*cellSize, y: CGFloat(row)*cellSize,
-                                                  width: cellSize, height: cellSize)),
-                                     with: .color(Color(nsColor: magnifier.pixels[row][col])))
+            // Single Canvas: pixels + grid lines in one render pass.
+            Canvas { [pixels = magnifier.pixels] ctx, _ in
+                if pixels.isEmpty {
+                    ctx.fill(Path(CGRect(x: 0, y: 0,
+                                        width: CGFloat(3) * 14,
+                                        height: CGFloat(3) * 14)),
+                             with: .color(.white.opacity(0.07)))
+                } else {
+                    for row in 0..<3 {
+                        guard row < pixels.count else { break }
+                        for col in 0..<3 {
+                            guard col < pixels[row].count else { break }
+                            ctx.fill(
+                                Path(CGRect(x: CGFloat(col) * 14, y: CGFloat(row) * 14,
+                                           width: 14, height: 14)),
+                                with: .color(Color(nsColor: pixels[row][col]))
+                            )
                         }
                     }
-                }.frame(width: magnifierSize, height: magnifierSize)
-            } else {
-                Rectangle().fill(Color.white.opacity(0.07)).frame(width: magnifierSize, height: magnifierSize)
-            }
-            Canvas { ctx, size in
-                var p = Path()
-                for i in 1..<gridSize {
-                    let v = CGFloat(i) * cellSize
-                    p.move(to: .init(x: v, y: 0)); p.addLine(to: .init(x: v, y: size.height))
-                    p.move(to: .init(x: 0, y: v)); p.addLine(to: .init(x: size.width, y: v))
                 }
-                ctx.stroke(p, with: .color(.white.opacity(0.18)), lineWidth: 0.5)
-            }.frame(width: magnifierSize, height: magnifierSize)
-            // Адаптивная рамка центральной ячейки — инвертирует цвет центрального пикселя
+                ctx.stroke(Self.gridLinePath, with: .color(.white.opacity(0.18)), lineWidth: 0.5)
+            }
+            .frame(width: magnifierSize, height: magnifierSize)
+
+            // Adaptive center-cell border — contrasts against the sampled pixel.
             Rectangle()
                 .stroke(centerBorderColor, lineWidth: 1.5)
                 .frame(width: cellSize, height: cellSize)
         }
         .frame(width: magnifierSize, height: magnifierSize)
+        .drawingGroup()   // composite ZStack to a single GPU-backed texture at 60 fps
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.22), lineWidth: 1))
     }
@@ -291,9 +310,15 @@ final class ColorPickerHUD {
     }
 
     func update(color: NSColor, cursorPosition: NSPoint, magnifier: MagnifierData?) {
-        currentPhase = .livePreview(color)
-        if let mag = magnifier { currentMagnifier = mag }
-        refreshContent()
+        let newPhase = ColorPickerHUDPhase.livePreview(color)
+        let newMag   = magnifier ?? currentMagnifier
+        // Only rebuild SwiftUI view tree when content actually changed.
+        // moveToPosition always runs so the panel tracks the cursor.
+        if newPhase != currentPhase || newMag != currentMagnifier {
+            currentPhase     = newPhase
+            currentMagnifier = newMag
+            refreshContent()
+        }
         moveToPosition(cursorPosition)
     }
 
