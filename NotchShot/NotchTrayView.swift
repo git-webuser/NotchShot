@@ -6,7 +6,7 @@ import AppKit
 
 struct NotchTrayView: View {
     let metrics: NotchMetrics
-    @ObservedObject var trayModel: NotchTrayModel
+    var trayModel: NotchTrayModel
     let onBack: () -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
@@ -310,7 +310,7 @@ private struct TrayScreenshotCell: View {
     let cornerRadius: CGFloat
     let onRemove: () -> Void
 
-    @StateObject private var loader = ThumbnailLoader()
+    @State private var loader = ThumbnailLoader()
     @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isRemoving   = false

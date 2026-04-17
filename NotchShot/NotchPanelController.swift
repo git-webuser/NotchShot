@@ -1,12 +1,11 @@
 import AppKit
 import SwiftUI
-import Combine
 
 // MARK: - Interaction state
 
-final class NotchPanelInteractionState: ObservableObject {
-    @Published var isEnabled: Bool = true
-    @Published var contentVisibility: Double = 1.0
+@Observable final class NotchPanelInteractionState {
+    var isEnabled: Bool = true
+    var contentVisibility: Double = 1.0
 }
 
 // MARK: - Root state
@@ -17,24 +16,24 @@ enum NotchPanelRoute {
     case cdwn
 }
 
-final class NotchPanelRootState: ObservableObject {
-    @Published var route: NotchPanelRoute = .main
-    @Published var metrics: NotchMetrics = .fallback()
+@Observable final class NotchPanelRootState {
+    var route: NotchPanelRoute = .main
+    var metrics: NotchMetrics = .fallback()
     /// 0.0 = Main, 1.0 = Tray
-    @Published var progress: CGFloat = 0.0
+    var progress: CGFloat = 0.0
     /// Pre-faded to 0.0 before tray→main morph starts; reset to 1.0 after close completes
-    @Published var trayContentVisible: CGFloat = 1.0
+    var trayContentVisible: CGFloat = 1.0
     /// 0.0 = Main visible, 1.0 = Countdown visible (crossfade, no morph)
-    @Published var countdownVisible: CGFloat = 0.0
-    @Published var countdownSeconds: Int = 0
-    @Published var countdownTotal: Int = 0
+    var countdownVisible: CGFloat = 0.0
+    var countdownSeconds: Int = 0
+    var countdownTotal: Int = 0
 }
 
 private struct NotchPanelRootView: View {
-    @ObservedObject var rootState: NotchPanelRootState
-    @ObservedObject var interaction: NotchPanelInteractionState
-    @ObservedObject var model: NotchPanelModel
-    @ObservedObject var trayModel: NotchTrayModel
+    var rootState: NotchPanelRootState
+    var interaction: NotchPanelInteractionState
+    var model: NotchPanelModel
+    var trayModel: NotchTrayModel
 
     let onClose: () -> Void
     let onCapture: (CaptureMode, CaptureDelay) -> Void

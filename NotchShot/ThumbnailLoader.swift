@@ -1,14 +1,13 @@
 import AppKit
-import Combine
 
 // MARK: - ThumbnailLoader
 
-@MainActor
-final class ThumbnailLoader: ObservableObject {
-    @Published var image: NSImage?
+@MainActor @Observable
+final class ThumbnailLoader {
+    var image: NSImage?
 
     private var loadedURL: URL?
-    private var loadTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var loadTask: Task<Void, Never>?
 
     deinit { loadTask?.cancel() }
 

@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var hover = NotchHoverController(panel: panel)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppSettings.migrateLegacySaveDirectoryIfNeeded()
         hover.start()
         interceptSettingsMenuItem()
         NotificationCenter.default.addObserver(

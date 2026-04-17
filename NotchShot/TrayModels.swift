@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import Foundation
 
 // MARK: - Tray Item
@@ -69,18 +68,20 @@ private struct PersistedTrayItem: Codable {
 
 // MARK: - NotchTrayModel
 
-final class NotchTrayModel: ObservableObject {
-    @Published private(set) var items: [TrayItem] = []
+@Observable final class NotchTrayModel {
+    private(set) var items: [TrayItem] = []
 
-    private var cancellables = Set<AnyCancellable>()
+    private var persistWorkItem: DispatchWorkItem?
+
+    private func schedulePersist() {
+        persistWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.persistIfNeeded() }
+        persistWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
+    }
 
     init() {
         restoreIfNeeded()
-        // Persist whenever items change and persistTray is on
-        $items
-            .dropFirst()
-            .sink { [weak self] _ in self?.persistIfNeeded() }
-            .store(in: &cancellables)
     }
 
     var colors: [TrayColor] {
@@ -99,6 +100,7 @@ final class NotchTrayModel: ObservableObject {
         }
         items.insert(.color(TrayColor(color: c, hex: hex)), at: 0)
         trim()
+        schedulePersist()
     }
 
     func add(screenshotURL url: URL) {
@@ -108,10 +110,12 @@ final class NotchTrayModel: ObservableObject {
         }
         items.insert(.screenshot(TrayScreenshot(url: url)), at: 0)
         trim()
+        schedulePersist()
     }
 
     func remove(id: UUID) {
         items.removeAll { $0.id == id }
+        schedulePersist()
     }
 
     func remove(screenshotURL url: URL) {
@@ -119,12 +123,14 @@ final class NotchTrayModel: ObservableObject {
             if case .screenshot(let s) = $0 { return s.url == url }
             return false
         }
+        schedulePersist()
     }
 
     private func trim() {
         let limit = AppSettings.trayMaxItems
         guard items.count > limit else { return }
         items = Array(items.prefix(limit))
+        schedulePersist()
     }
 
     // MARK: Persistence

@@ -14,6 +14,15 @@ final class WindowPickerOverlay {
     private var escMonitors: [Any] = []
     private var hideTimer: Timer?
     private var hideCount = 0
+    /// true between start() and dismiss() — guards hideCursor() from
+    /// firing after the overlay is gone (stale timer tick, late onNeedsHide).
+    private var isActive = false
+
+    deinit {
+        // Defensive: if dismiss() was never called (e.g. controller torn down
+        // mid-session) restore the exact number of hides we issued.
+        resetCursorState()
+    }
 
     func start(on screen: NSScreen) {
         targetScreen = screen
@@ -51,6 +60,7 @@ final class WindowPickerOverlay {
         // Hide cursor repeatedly on the common run-loop mode so it fires during
         // both default and event-tracking modes. hideCount tracks every call so
         // dismiss() can restore the exact balance via CGDisplayShowCursor.
+        isActive = true
         hideTimer?.invalidate()
         hideTimer = nil
         hideCount = 0
@@ -70,12 +80,34 @@ final class WindowPickerOverlay {
     /// Single authoritative call site for CGDisplayHideCursor — keeps the
     /// counter accurate so dismiss() can restore the exact show/hide balance.
     private func hideCursor() {
+        guard isActive else { return }
         CGDisplayHideCursor(CGMainDisplayID())
         hideCount += 1
     }
 
+    /// Resets any pending cursor-hide state accumulated since the last start().
+    /// Safe to call even when the overlay is not active (becomes a no-op).
+    /// Called defensively in finishCountdown / captureNowFromCountdown in case
+    /// a stale hideCursor() managed to fire after dismiss().
+    func resetCursorState() {
+        isActive = false
+        hideTimer?.invalidate()
+        hideTimer = nil
+        if hideCount > 0 {
+            let cid = _CGSDefaultConnection()
+            for _ in 0 ..< hideCount { CGDisplayShowCursor(CGMainDisplayID()) }
+            hideCount = 0
+            CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
+                                     kCFBooleanFalse)
+        }
+        NSCursor.arrow.set()
+    }
+
     private func dismiss() {
         guard panel != nil else { return }
+        // Mark inactive first so any late hideCursor() calls (stale timer tick,
+        // onNeedsHide dispatched before orderOut) are ignored.
+        isActive = false
         hideTimer?.invalidate()
         hideTimer = nil
         let cid = _CGSDefaultConnection()

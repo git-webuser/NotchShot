@@ -285,7 +285,7 @@ struct ScreenshotThumbnailView: View {
     let onPin: () -> Void
     let onUnpin: () -> Void
 
-    @StateObject private var loader = ThumbnailLoader()
+    @State private var loader = ThumbnailLoader()
     @State private var isPinned = false
     @State private var isHovered = false
     @State private var isPinBadgePressed = false

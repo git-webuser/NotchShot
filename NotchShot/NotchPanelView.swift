@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import Combine
 
 
 // MARK: - CaptureMode
@@ -70,9 +69,9 @@ enum CaptureDelay: CaseIterable, Equatable {
 
 // MARK: - NotchPanelModel
 
-final class NotchPanelModel: ObservableObject {
-    @Published var mode: CaptureMode   = AppSettings.defaultCaptureMode
-    @Published var delay: CaptureDelay = AppSettings.defaultTimerDelay
+@Observable final class NotchPanelModel {
+    var mode: CaptureMode   = AppSettings.defaultCaptureMode
+    var delay: CaptureDelay = AppSettings.defaultTimerDelay
 }
 
 // MARK: - NotchPanelView
@@ -80,8 +79,8 @@ final class NotchPanelModel: ObservableObject {
 struct NotchPanelView: View {
     let metrics: NotchMetrics
 
-    @ObservedObject var interaction: NotchPanelInteractionState
-    @ObservedObject var model: NotchPanelModel
+    var interaction: NotchPanelInteractionState
+    var model: NotchPanelModel
 
     let isTrayOpen: Bool
 
@@ -407,7 +406,7 @@ private struct PopUpButtonWrapper: NSViewRepresentable {
 // MARK: - PanelModeMenuButton
 
 private struct PanelModeMenuButton: View {
-    @ObservedObject var model: NotchPanelModel
+    var model: NotchPanelModel
     let metrics: NotchMetrics
     let onPickColor: () -> Void
 
@@ -416,7 +415,8 @@ private struct PanelModeMenuButton: View {
     @State private var isMenuOpen = false
 
     var body: some View {
-        ZStack {
+        @Bindable var model = model
+        return ZStack {
             PopUpModeButtonWrapper(
                 selection: $model.mode,
                 onPickColor: onPickColor,
@@ -469,7 +469,7 @@ private struct PanelModeMenuButton: View {
 // MARK: - PanelTimerMenuButton
 
 private struct PanelTimerMenuButton: View {
-    @ObservedObject var model: NotchPanelModel
+    var model: NotchPanelModel
     let metrics: NotchMetrics
     let digitsWidth: CGFloat
     let hasValue: Bool
@@ -480,7 +480,8 @@ private struct PanelTimerMenuButton: View {
     @State private var isMenuOpen = false
 
     var body: some View {
-        ZStack {
+        @Bindable var model = model
+        return ZStack {
             PopUpButtonWrapper(
                 selection: $model.delay,
                 onOpen:  { isMenuOpen = true  },
@@ -577,7 +578,7 @@ private struct PanelCaptureButton: View {
 
 struct CountdownView: View {
     let metrics: NotchMetrics
-    @ObservedObject var interaction: NotchPanelInteractionState
+    var interaction: NotchPanelInteractionState
     let secondsRemaining: Int
     let totalSeconds: Int
     let onStop: () -> Void

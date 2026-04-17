@@ -110,7 +110,13 @@ extension NotchPanelController {
         let target = countdownCaptureTarget
         let screen = countdownScreen
         hideAnimated { [weak self] in
-            self?.executeCapture(target: target, screen: screen)
+            guard let self else { return }
+            // Safety net: balance any CGDisplayHideCursor calls that may have
+            // slipped through after the window-picker dismiss() (e.g. a stale
+            // timer tick between dismiss() and invalidate()). No-op if the
+            // hide-count is already zero.
+            self.windowPickerOverlay.resetCursorState()
+            self.executeCapture(target: target, screen: screen)
         }
     }
 
@@ -119,7 +125,10 @@ extension NotchPanelController {
         let target = countdownCaptureTarget
         let screen = countdownScreen
         hideAnimated { [weak self] in
-            self?.executeCapture(target: target, screen: screen)
+            guard let self else { return }
+            // Same safety net as captureNowFromCountdown — see comment there.
+            self.windowPickerOverlay.resetCursorState()
+            self.executeCapture(target: target, screen: screen)
         }
     }
 

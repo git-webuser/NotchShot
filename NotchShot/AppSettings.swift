@@ -83,6 +83,29 @@ enum AppSettings {
         return legacyOrDownloadsURL()
     }
 
+    /// One-time migration: if a legacy plain-path saveDirectory exists but no
+    /// security-scoped bookmark does, attempt to create the bookmark now.
+    /// Should be called once at app launch before any capture/tray access.
+    static func migrateLegacySaveDirectoryIfNeeded() {
+        guard UserDefaults.standard.data(forKey: Keys.saveDirectoryBookmark) == nil,
+              let path = UserDefaults.standard.string(forKey: Keys.saveDirectory),
+              !path.isEmpty
+        else { return }
+
+        let url = URL(fileURLWithPath: path)
+        guard (try? url.checkResourceIsReachable()) == true else { return }
+
+        if let data = try? url.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) {
+            UserDefaults.standard.set(data, forKey: Keys.saveDirectoryBookmark)
+            UserDefaults.standard.removeObject(forKey: Keys.saveDirectory)
+            print("[AppSettings] Migrated legacy saveDirectory to security-scoped bookmark.")
+        }
+    }
+
     /// Fallback resolution when no (resolvable) bookmark exists: prefer the
     /// legacy plain-string path if present, otherwise Downloads, otherwise home.
     private static func legacyOrDownloadsURL() -> URL {
