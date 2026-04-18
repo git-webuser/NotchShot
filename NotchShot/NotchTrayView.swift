@@ -289,6 +289,9 @@ private struct TrayColorCell: View {
             .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isHovered)
             .animation(.spring(response: 0.15, dampingFraction: 0.7), value: isPressed)
             .animation(.easeIn(duration: 0.16), value: isRemoving)
+            .accessibilityLabel("Color \(scheme.convert(item.color))")
+            .accessibilityHint("Tap to copy, hold to delete")
+            .accessibilityAddTraits(.isButton)
             .onHover { isHovered = $0 }
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
@@ -325,6 +328,7 @@ private struct TrayScreenshotCell: View {
     @State private var isRemoving   = false
     @State private var isBadgeActive = false
     @State private var isDragging   = false
+    @State private var isCopied     = false
 
     private var width: CGFloat { height * 1.6 }
 
@@ -369,6 +373,19 @@ private struct TrayScreenshotCell: View {
                 .opacity(isHovered ? 1 : 0)
                 .allowsHitTesting(false)
                 .offset(y: labelOffset)
+        }
+        .overlay {
+            if isCopied {
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.black.opacity(0.55))
+                    Text("Copied ✓")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .transition(.opacity.animation(.easeInOut(duration: 0.14)))
+                .allowsHitTesting(false)
+            }
         }
         .scaleEffect(isPressed ? 0.88 : (isDragging ? 0.92 : 1.0))
         .opacity(isRemoving ? 0 : (isDragging ? 0.45 : 1))
@@ -420,7 +437,13 @@ private struct TrayScreenshotCell: View {
                 }
             }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
-            Button("Copy") { NSPasteboard.general.writeImage(at: shot.url) }
+            Button("Copy") {
+                NSPasteboard.general.writeImage(at: shot.url)
+                withAnimation { isCopied = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation { isCopied = false }
+                }
+            }
             Divider()
             Button("Move to Trash") {
                 withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
@@ -428,6 +451,9 @@ private struct TrayScreenshotCell: View {
             }
         }
         .task(id: shot.url) { loader.load(imageURL: shot.url) }
+        .accessibilityLabel("Screenshot \(shot.url.deletingPathExtension().lastPathComponent)")
+        .accessibilityHint("Tap to open, hold to delete")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -445,7 +471,7 @@ private struct PopUpSchemeButtonWrapper: NSViewRepresentable {
         button.pullsDown        = true
         button.autoresizingMask = []
         (button.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
-        button.setAccessibilityLabel("Color format")
+        button.setAccessibilityLabel(String(localized: "Color format"))
 
         // pullsDown=true: the first item acts as the hidden button title,
         // so we add an empty placeholder to make HEX the first visible option.
@@ -699,7 +725,9 @@ final class TrayDragShimView: NSView, NSDraggingSource {
         }
         if let start {
             let current = convert(event.locationInWindow, from: nil)
-            if hypot(current.x - start.x, current.y - start.y) < 5 { onTap() }
+            // AppKit does not expose the system drag threshold publicly;
+            // 4 pt matches the value used internally by NSWindow drag detection.
+            if hypot(current.x - start.x, current.y - start.y) < 4 { onTap() }
         }
     }
 

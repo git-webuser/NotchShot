@@ -396,5 +396,6 @@ struct ScreenshotThumbnailView: View {
             onHoverChanged(hovering, isPinned)
         }
         .task(id: imageURL) { loader.load(imageURL: imageURL, maxPixelSize: 440) }
+        .managedLocale()
     }
 }

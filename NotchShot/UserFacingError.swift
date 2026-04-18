@@ -40,24 +40,30 @@ enum UserFacingError {
         var title: String {
             switch self {
             case .screenCaptureFailed:
-                return "Screenshot failed"
+                return String(localized: "Screenshot failed")
             case .colorPickerUnavailable:
-                return "Color picker unavailable"
+                return String(localized: "Color picker unavailable")
             case .saveDirectoryInaccessible:
-                return "Save folder is not accessible"
+                return String(localized: "Save folder is not accessible")
             }
         }
 
         var message: String {
             switch self {
             case .screenCaptureFailed(let reason):
-                let base = "macOS couldn’t capture the screen. This usually means Screen Recording permission is missing or was revoked."
-                return reason.map { "\(base)\n\nDetails: \($0)" } ?? base
+                let base = String(localized: "macOS couldn't capture the screen. This usually means Screen Recording permission is missing or was revoked.")
+                if let r = reason {
+                    return base + "\n\n" + String(format: String(localized: "Details: %@"), r)
+                }
+                return base
             case .colorPickerUnavailable(let reason):
-                let base = "The color picker can’t read pixel data. Grant Screen Recording permission to NotchShot so it can sample colors from the screen."
-                return reason.map { "\(base)\n\nDetails: \($0)" } ?? base
+                let base = String(localized: "The color picker can't read pixel data. Grant Screen Recording permission to NotchShot so it can sample colors from the screen.")
+                if let r = reason {
+                    return base + "\n\n" + String(format: String(localized: "Details: %@"), r)
+                }
+                return base
             case .saveDirectoryInaccessible(let url):
-                return "NotchShot can’t write screenshots to “\(url.lastPathComponent)”. The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings → Capture."
+                return String(format: String(localized: "NotchShot can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
             }
         }
 
@@ -79,8 +85,8 @@ enum UserFacingError {
 
         var buttonTitle: String {
             switch self {
-            case .openScreenRecordingSettings: return "Open Privacy Settings"
-            case .openAppSettings:             return "Open NotchShot Settings"
+            case .openScreenRecordingSettings: return String(localized: "Open Privacy Settings")
+            case .openAppSettings:             return String(localized: "Open NotchShot Settings")
             }
         }
 
@@ -130,13 +136,13 @@ enum UserFacingError {
 
         if let remediation = kind.remediation {
             alert.addButton(withTitle: remediation.buttonTitle)
-            alert.addButton(withTitle: "Dismiss")
+            alert.addButton(withTitle: String(localized: "Dismiss"))
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
                 remediation.perform()
             }
         } else {
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: String(localized: "OK"))
             alert.runModal()
         }
     }

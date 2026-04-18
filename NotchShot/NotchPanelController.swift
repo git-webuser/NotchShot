@@ -243,7 +243,7 @@ final class NotchPanelController: NSObject {
     /// re-attach the window to the current Space.
     private func rebindPanelToActiveSpace(_ panel: NSPanel) {
         panel.collectionBehavior = []
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
     }
 
     // MARK: - Public API
@@ -467,7 +467,7 @@ final class NotchPanelController: NSObject {
 
         panel.isFloatingPanel = true
         panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -475,7 +475,7 @@ final class NotchPanelController: NSObject {
         panel.ignoresMouseEvents = false
         panel.appearance = NSAppearance(named: .darkAqua)
 
-        panel.contentView = NSHostingView(rootView: makeRootView())
+        panel.contentView = NSHostingView(rootView: makeRootView().managedLocale())
         self.panel = panel
 
         installEscMonitor()

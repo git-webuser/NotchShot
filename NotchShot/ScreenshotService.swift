@@ -159,9 +159,9 @@ final class ScreenshotService {
                 } else {
                     let alert = NSAlert()
                     alert.alertStyle = .warning
-                    alert.messageText = "Screenshot saved to temporary folder"
-                    alert.informativeText = "Could not save to the selected folder: \(error.localizedDescription)\n\nThe file was kept in the temporary folder instead."
-                    alert.addButton(withTitle: "OK")
+                    alert.messageText = String(localized: "Screenshot saved to temporary folder")
+                    alert.informativeText = String(localized: "Could not save to the selected folder: \(error.localizedDescription)\n\nThe file was kept in the temporary folder instead.")
+                    alert.addButton(withTitle: String(localized: "OK"))
                     alert.runModal()
                 }
 

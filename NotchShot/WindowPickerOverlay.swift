@@ -12,15 +12,15 @@ final class WindowPickerOverlay {
     private var panel: NSPanel?
     private var targetScreen: NSScreen?
     private var escMonitors: [Any] = []
-    private var hideTimer: Timer?
-    private var hideCount = 0
-    /// true between start() and dismiss() — guards hideCursor() from
-    /// firing after the overlay is gone (stale timer tick, late onNeedsHide).
-    private var isActive = false
+    private var cursorObservers: [NSObjectProtocol] = []
+    private var cursorTimer: Timer?
+    /// The pushed cursor — kept so observers can re-apply it after focus/space changes.
+    private var wpcCursor: NSCursor?
+    /// True while the cursor has been pushed via NSCursor.push() — guards
+    /// against a double-pop if both dismiss() and resetCursorState() fire.
+    private var cursorPushed = false
 
     deinit {
-        // Defensive: if dismiss() was never called (e.g. controller torn down
-        // mid-session) restore the exact number of hides we issued.
         resetCursorState()
     }
 
@@ -29,8 +29,11 @@ final class WindowPickerOverlay {
         let frame = screen.frame
 
         let panel = makeOverlayPanel(frame: frame)
+        let wpcCursor = makeWindowCaptureCursor()
+
         let view = WindowPickerView(frame: NSRect(origin: .zero, size: frame.size))
         view.targetScreen = screen
+        view.wpcCursor = wpcCursor          // view uses same cursor instance for cursor-rects
         view.onSelected = { [weak self] windowID in
             self?.dismiss()
             self?.onSelected?(windowID)
@@ -39,37 +42,33 @@ final class WindowPickerOverlay {
             self?.dismiss()
             self?.onCancelled?()
         }
-        view.onNeedsHide = { [weak self] in self?.hideCursor() }
         panel.contentView = view
         self.panel = panel
 
         installEscMonitors(into: &escMonitors) { [weak self] in self?.cancel() }
 
-        NSApp.activate(ignoringOtherApps: true)
-        panel.orderFrontRegardless()
-        panel.makeKeyAndOrderFront(nil)
-        panel.makeFirstResponder(view)
-        panel.disableCursorRects()
+        // Push cursor before the window becomes key (mirrors SelectionOverlay pattern).
+        // The view's resetCursorRects / cursorUpdate / mouseMoved maintain it afterwards.
+        wpcCursor.push()
+        self.wpcCursor = wpcCursor
+        cursorPushed = true
 
-        // Allow cursor control in the background so the window server doesn't
-        // hand cursor ownership to another process when hovering over its window.
+        // Allow cursor control even when our process is not the active app —
+        // without this, NSCursor.set() has no effect while another app is
+        // frontmost (e.g. after a Space switch that activates a different app).
         let cid = _CGSDefaultConnection()
         CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
                                  kCFBooleanTrue)
 
-        // Hide cursor repeatedly on the common run-loop mode so it fires during
-        // both default and event-tracking modes. hideCount tracks every call so
-        // dismiss() can restore the exact balance via CGDisplayShowCursor.
-        isActive = true
-        hideTimer?.invalidate()
-        hideTimer = nil
-        hideCount = 0
-        hideCursor()
-        let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            self?.hideCursor()
-        }
-        RunLoop.main.add(t, forMode: .common)
-        hideTimer = t
+        NSApp.activate(ignoringOtherApps: true)
+        panel.orderFrontRegardless()
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(view)
+        // Set AFTER makeKeyAndOrderFront so AppKit's window-activation cursor reset
+        // is overridden (same ordering as SelectionOverlay).
+        wpcCursor.set()
+
+        installCursorObservers(panel: panel)
     }
 
     func cancel() {
@@ -77,56 +76,100 @@ final class WindowPickerOverlay {
         onCancelled?()
     }
 
-    /// Single authoritative call site for CGDisplayHideCursor — keeps the
-    /// counter accurate so dismiss() can restore the exact show/hide balance.
-    private func hideCursor() {
-        guard isActive else { return }
-        CGDisplayHideCursor(CGMainDisplayID())
-        hideCount += 1
-    }
-
-    /// Resets any pending cursor-hide state accumulated since the last start().
-    /// Safe to call even when the overlay is not active (becomes a no-op).
-    /// Called defensively in finishCountdown / captureNowFromCountdown in case
-    /// a stale hideCursor() managed to fire after dismiss().
+    /// Resets cursor state. Safe to call when already inactive (e.g. if
+    /// dismiss() was already called). Called defensively from
+    /// finishCountdown / captureNowFromCountdown in NotchPanelCapture.
     func resetCursorState() {
-        isActive = false
-        hideTimer?.invalidate()
-        hideTimer = nil
-        if hideCount > 0 {
-            let cid = _CGSDefaultConnection()
-            for _ in 0 ..< hideCount { CGDisplayShowCursor(CGMainDisplayID()) }
-            hideCount = 0
-            CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
-                                     kCFBooleanFalse)
+        removeCursorObservers()
+        if cursorPushed {
+            NSCursor.pop()
+            cursorPushed = false
         }
+        wpcCursor = nil
+        let cid = _CGSDefaultConnection()
+        CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
+                                 kCFBooleanFalse)
         NSCursor.arrow.set()
+        DispatchQueue.main.async { NSCursor.arrow.set() }
     }
 
     private func dismiss() {
         guard panel != nil else { return }
-        // Mark inactive first so any late hideCursor() calls (stale timer tick,
-        // onNeedsHide dispatched before orderOut) are ignored.
-        isActive = false
-        hideTimer?.invalidate()
-        hideTimer = nil
+        removeCursorObservers()
+        if cursorPushed {
+            NSCursor.pop()
+            cursorPushed = false
+        }
+        wpcCursor = nil
         let cid = _CGSDefaultConnection()
-        // ShowCursor while SetsCursorInBackground is still true — otherwise the
-        // newly-activated process could grab cursor control before we release it.
-        for _ in 0 ..< hideCount { CGDisplayShowCursor(CGMainDisplayID()) }
-        hideCount = 0
         CGSSetConnectionProperty(cid, cid, "SetsCursorInBackground" as CFString,
                                  kCFBooleanFalse)
         escMonitors.forEach { NSEvent.removeMonitor($0) }
         escMonitors.removeAll()
         panel?.orderOut(nil)
         panel = nil
-        // Restore cursor AFTER orderOut: AppKit processes the active-window
-        // change during orderOut and can overwrite any cursor state set before
-        // it. The async call catches cases where AppKit finishes cursor management
-        // after returning from orderOut (e.g. focus shift to another app).
         NSCursor.arrow.set()
         DispatchQueue.main.async { NSCursor.arrow.set() }
+    }
+
+    // MARK: - Cursor observers
+
+    /// Installs notification observers that re-apply the window-capture cursor
+    /// on state transitions that can reset it (Space switch, app activation).
+    /// Within-overlay cursor maintenance is handled by the view's cursor-rect
+    /// methods (resetCursorRects / cursorUpdate / mouseEntered / mouseMoved).
+    private func installCursorObservers(panel: NSPanel) {
+        // MARK: Event-based approach (active)
+        // Handles the two OS-level events that reset cursor in State 1:
+        // space switches and app-activation changes.
+
+        // Space change: re-front overlay after transition animation (150 ms).
+        let spaceObs = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self, weak panel] _ in
+            guard let self, let panel else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self, weak panel] in
+                guard let self, let panel, self.cursorPushed else { return }
+                panel.orderFrontRegardless()
+                self.wpcCursor?.set()
+            }
+        }
+
+        // App-activation: re-apply after our app regains active status.
+        let activateObs = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.cursorPushed else { return }
+            self.wpcCursor?.set()
+        }
+
+        cursorObservers = [spaceObs, activateObs]
+
+        // Timer-based gap-filler: macOS has no "cursor was reset" event, so
+        // there is no way to react to a reset that happens while the cursor is
+        // stationary (e.g. Space switch with no subsequent mouse movement).
+        // The event observers above cover resets that coincide with movement;
+        // this 30 fps timer covers the stationary case. Both run together.
+        let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self, self.cursorPushed else { return }
+            self.wpcCursor?.set()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        cursorTimer = t
+    }
+
+    private func removeCursorObservers() {
+        cursorTimer?.invalidate()
+        cursorTimer = nil
+        cursorObservers.forEach {
+            NSWorkspace.shared.notificationCenter.removeObserver($0)
+            NotificationCenter.default.removeObserver($0)
+        }
+        cursorObservers.removeAll()
     }
 }
 
@@ -134,45 +177,20 @@ final class WindowPickerOverlay {
 
 private final class WindowPickerView: NSView {
     var targetScreen: NSScreen?
+    var wpcCursor: NSCursor = .arrow      // set by WindowPickerOverlay before display
     var onSelected: ((CGWindowID) -> Void)?
     var onCancelled: (() -> Void)?
-    /// Called on every hover-window change so the overlay can increment the hide counter.
-    var onNeedsHide: (() -> Void)?
 
     private var hoveredWindowID: CGWindowID?
     private var hoveredViewRect: CGRect?
 
-    // Software cursor: we draw the cursor ourselves since the hardware cursor
-    // is hidden via CGDisplayHideCursor.
-    private let _wpcCursor: NSCursor = makeWindowCaptureCursor()
-    private lazy var softCursor: NSImageView = {
-        let img  = _wpcCursor.image
-        let view = NSImageView(frame: NSRect(origin: .zero, size: img.size))
-        view.image        = img
-        view.imageScaling = .scaleNone
-        view.wantsLayer   = true
-        return view
-    }()
-
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { true }
-
-    // Prevent AppKit from overriding the cursor.
-    override func resetCursorRects() {}
-    override func cursorUpdate(with event: NSEvent) {}
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
         window?.makeFirstResponder(self)
-        addSubview(softCursor)
-        // Position the software cursor at the current mouse location.
-        if let win = window {
-            let screenPt = NSEvent.mouseLocation
-            let winPt    = win.convertPoint(fromScreen: screenPt)
-            let viewPt   = convert(winPt, from: nil)
-            placeSoftCursor(at: viewPt)
-        }
     }
 
     override func updateTrackingAreas() {
@@ -180,31 +198,26 @@ private final class WindowPickerView: NSView {
         trackingAreas.forEach { removeTrackingArea($0) }
         addTrackingArea(NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect, .cursorUpdate],
             owner: self,
             userInfo: nil
         ))
     }
 
-    private func placeSoftCursor(at viewPt: NSPoint) {
-        // Offset the image so its hotspot aligns with the pointer position.
-        // NSView: y=0 at the bottom. Hotspot (hx, hy) from image top-left:
-        //   origin.x = viewPt.x - hx
-        //   origin.y = viewPt.y - height + hy
-        let hs = _wpcCursor.hotSpot
-        let h  = softCursor.frame.height
-        let origin = NSPoint(x: viewPt.x - hs.x, y: viewPt.y - h + hs.y)
-        // Disable implicit CALayer animation; without this the wantsLayer view
-        // glides between positions (~0.25 s), causing a ghosted double-cursor.
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        softCursor.frame.origin = origin
-        CATransaction.commit()
+    // Cursor maintenance — mirrors SelectionView's pattern exactly.
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: wpcCursor)
+    }
+    override func cursorUpdate(with event: NSEvent) {
+        wpcCursor.set()
+    }
+    override func mouseEntered(with event: NSEvent) {
+        wpcCursor.set()
     }
 
     override func mouseMoved(with event: NSEvent) {
+        wpcCursor.set()
         let pt = convert(event.locationInWindow, from: nil)
-        placeSoftCursor(at: pt)
         updateHover(at: pt)
     }
 
@@ -219,10 +232,6 @@ private final class WindowPickerView: NSView {
     private func updateHover(at viewPt: NSPoint) {
         guard let screen = targetScreen else { return }
         let result = windowAtViewPoint(viewPt, screen: screen)
-        if result?.0 != hoveredWindowID {
-            // Window changed — caller increments hide counter.
-            onNeedsHide?()
-        }
         hoveredWindowID = result?.0
         hoveredViewRect = result?.1
         needsDisplay = true

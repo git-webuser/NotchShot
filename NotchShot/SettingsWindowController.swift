@@ -76,7 +76,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         ]
 
         for item in items {
-            let hosting = NSHostingController(rootView: item.view)
+            let hosting = NSHostingController(rootView: item.view.managedLocale())
             // Give each tab a comfortable minimum size
             hosting.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 460).isActive = true
 

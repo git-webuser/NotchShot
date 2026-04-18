@@ -114,6 +114,7 @@ struct ColorPickerHUDView: View, Equatable {
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isSuccess)
         .animation(.spring(response: 0.25, dampingFraction: 0.85), value: format)
         .fixedSize()
+        .managedLocale()
     }
 
     @ViewBuilder private var magnifierArea: some View {

@@ -111,10 +111,9 @@ extension NotchPanelController {
         let screen = countdownScreen
         hideAnimated { [weak self] in
             guard let self else { return }
-            // Safety net: balance any CGDisplayHideCursor calls that may have
-            // slipped through after the window-picker dismiss() (e.g. a stale
-            // timer tick between dismiss() and invalidate()). No-op if the
-            // hide-count is already zero.
+            // Safety net: if the window-picker dismissed normally, isCursorHidden
+            // is already false and this is a no-op. Guards against any edge case
+            // where dismiss() was skipped.
             self.windowPickerOverlay.resetCursorState()
             self.executeCapture(target: target, screen: screen)
         }
