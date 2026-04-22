@@ -64,10 +64,10 @@ enum AppSettings {
         if let data = UserDefaults.standard.data(forKey: Keys.saveDirectoryBookmark) {
             var isStale = false
             if let url = try? URL(resolvingBookmarkData: data,
-                                  options: .withSecurityScope,
+                                  options: [],
                                   relativeTo: nil,
                                   bookmarkDataIsStale: &isStale) {
-                if isStale, let fresh = try? url.bookmarkData(options: .withSecurityScope,
+                if isStale, let fresh = try? url.bookmarkData(options: [],
                                                                includingResourceValuesForKeys: nil,
                                                                relativeTo: nil) {
                     UserDefaults.standard.set(fresh, forKey: Keys.saveDirectoryBookmark)
@@ -98,13 +98,13 @@ enum AppSettings {
         guard (try? url.checkResourceIsReachable()) == true else { return }
 
         if let data = try? url.bookmarkData(
-            options: .withSecurityScope,
+            options: [],
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         ) {
             UserDefaults.standard.set(data, forKey: Keys.saveDirectoryBookmark)
             UserDefaults.standard.removeObject(forKey: Keys.saveDirectory)
-            Log.settings.debug("Migrated legacy saveDirectory to security-scoped bookmark.")
+            Log.settings.debug("Migrated legacy saveDirectory to bookmark.")
         }
     }
 
@@ -118,18 +118,7 @@ enum AppSettings {
     }
 
     static func withSaveDirectoryAccess<T>(_ block: (URL) throws -> T) throws -> T {
-        let url = saveDirectoryURL
-        let hasBookmark = UserDefaults.standard.data(forKey: Keys.saveDirectoryBookmark) != nil
-        var accessing = false
-        if hasBookmark {
-            accessing = url.startAccessingSecurityScopedResource()
-            guard accessing else {
-                Log.settings.error("startAccessingSecurityScopedResource failed for: \(url.path)")
-                throw AppSettingsError.securityScopeAccessDenied(url)
-            }
-        }
-        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
-        return try block(url)
+        return try block(saveDirectoryURL)
     }
     static var filenamePreset: FilenamePreset {
         let raw = UserDefaults.standard.string(forKey: Keys.filenamePreset) ?? "compact"
@@ -364,18 +353,6 @@ enum FilenamePreset: String, CaseIterable {
     }
 }
 
-// MARK: - AppSettingsError
-
-enum AppSettingsError: LocalizedError {
-    case securityScopeAccessDenied(URL)
-
-    var errorDescription: String? {
-        switch self {
-        case .securityScopeAccessDenied(let url):
-            return "Cannot access folder \"\(url.lastPathComponent)\". Reassign the save folder in Settings."
-        }
-    }
-}
 
 // MARK: - NSColor hex init (for tray restore)
 extension NSColor {

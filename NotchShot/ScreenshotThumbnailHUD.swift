@@ -227,18 +227,6 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
     private func startFileDrag(url: URL, event: NSEvent) {
         fileDragStarted = true
 
-        let saveDir     = AppSettings.saveDirectoryURL
-        let hasBookmark = UserDefaults.standard.data(
-            forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
-        // Store the URL we started access on, so we stop on the SAME URL in
-        // draggingSession(endedAt:) even if the user changes save directory
-        // during the drag.
-        if hasBookmark && saveDir.startAccessingSecurityScopedResource() {
-            dragSource.accessedURL = saveDir
-        } else {
-            dragSource.accessedURL = nil
-        }
-
         let item        = NSDraggingItem(pasteboardWriter: url as NSURL)
         let previewSize = NSSize(width: max(bounds.width * 0.75, 1),
                                  height: max(bounds.height * 0.75, 1))
@@ -251,11 +239,6 @@ final class ThumbnailHostingView: NSHostingView<ScreenshotThumbnailView> {
 // Separate NSDraggingSource because NSHostingView already inherits the
 // conformance from NSView and its draggingSession methods are public (not open).
 private final class DragSource: NSObject, NSDraggingSource {
-    /// Non-nil while we hold an active security scope for this URL.
-    /// Must be released on the SAME URL that start was called on — re-reading
-    /// AppSettings.saveDirectoryURL could return a different path if the user
-    /// changed the save folder mid-drag, which would leak the first scope and
-    /// attempt to release a scope we never held.
     var accessedURL: URL?
     var onSessionEnded: (() -> Void)?
 
@@ -267,10 +250,7 @@ private final class DragSource: NSObject, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint,
                          operation: NSDragOperation) {
-        if let url = accessedURL {
-            url.stopAccessingSecurityScopedResource()
-            accessedURL = nil
-        }
+        accessedURL = nil
         onSessionEnded?()
     }
 }
@@ -363,15 +343,9 @@ struct ScreenshotThumbnailView: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onTapGesture {
-            let saveDir = AppSettings.saveDirectoryURL
-            let hasBookmark = UserDefaults.standard.data(
-                forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
-            let accessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
             let cfg = NSWorkspace.OpenConfiguration()
             cfg.activates = true
-            NSWorkspace.shared.open(imageURL, configuration: cfg) { _, _ in
-                if accessing { saveDir.stopAccessingSecurityScopedResource() }
-            }
+            NSWorkspace.shared.open(imageURL, configuration: cfg)
             if !isPinned { onDismiss() }
         }
         .contextMenu {

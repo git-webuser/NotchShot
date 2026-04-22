@@ -90,16 +90,12 @@ final class ScreenshotService {
             lastCaptureURL = tmpURL
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                if case AppSettingsError.securityScopeAccessDenied(let url) = error {
-                    UserFacingError.present(.saveDirectoryInaccessible(url: url))
-                } else {
-                    let alert = NSAlert()
-                    alert.alertStyle = .warning
-                    alert.messageText = String(localized: "Screenshot saved to temporary folder")
-                    alert.informativeText = String(localized: "Could not save to the selected folder: \(error.localizedDescription)\n\nThe file was kept in the temporary folder instead.")
-                    alert.addButton(withTitle: String(localized: "OK"))
-                    alert.runModal()
-                }
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = String(localized: "Screenshot saved to temporary folder")
+                alert.informativeText = String(localized: "Could not save to the selected folder: \(error.localizedDescription)\n\nThe file was kept in the temporary folder instead.")
+                alert.addButton(withTitle: String(localized: "OK"))
+                alert.runModal()
                 self.thumbnailHUD.onDelete = { [weak self] in self?.onDelete?(tmpURL) }
                 self.thumbnailHUD.show(imageURL: tmpURL, on: preferredScreen)
                 self.onCaptured?(tmpURL)

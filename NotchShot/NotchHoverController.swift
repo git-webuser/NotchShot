@@ -63,6 +63,7 @@ final class NotchHoverController: NSObject {
 
     @objc private func onUserDefaultsChanged() {
         reinstallHotKeysIfNeeded()
+        updateStatusItemMenuTitles()
     }
 
     private var lastHotkeyEnabledState: [UInt32: Bool] = [
@@ -82,6 +83,9 @@ final class NotchHoverController: NSObject {
         installHotKey()
     }
 
+    private var statusItemSettingsItem: NSMenuItem?
+    private var statusItemQuitItem: NSMenuItem?
+
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
@@ -89,9 +93,30 @@ final class NotchHoverController: NSObject {
         guard let button = item.button else { return }
         button.image = NSImage(systemSymbolName: "camera", accessibilityDescription: "NotchShot")
         button.imagePosition = .imageOnly
-        button.target = self
-        button.action = #selector(statusItemClicked)
-        button.sendAction(on: [.leftMouseUp])
+
+        let menu = NSMenu()
+
+        let settingsItem = NSMenuItem(
+            title: LocaleManager.shared.string("Settings"),
+            action: #selector(statusMenuSettingsTapped),
+            keyEquivalent: ""
+        )
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+        statusItemSettingsItem = settingsItem
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(
+            title: LocaleManager.shared.string("Quit NotchShot"),
+            action: #selector(statusMenuQuitTapped),
+            keyEquivalent: ""
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
+        statusItemQuitItem = quitItem
+
+        item.menu = menu
     }
 
     private func uninstallStatusItem() {
@@ -99,12 +124,21 @@ final class NotchHoverController: NSObject {
             NSStatusBar.system.removeStatusItem(statusItem)
             self.statusItem = nil
         }
+        statusItemSettingsItem = nil
+        statusItemQuitItem = nil
     }
 
-    @objc
-    private func statusItemClicked() {
-        guard let screen = preferredScreenForOpen() else { return }
-        panel.toggleAnimated(on: screen)
+    private func updateStatusItemMenuTitles() {
+        statusItemSettingsItem?.title = LocaleManager.shared.string("Settings")
+        statusItemQuitItem?.title     = LocaleManager.shared.string("Quit NotchShot")
+    }
+
+    @objc private func statusMenuSettingsTapped() {
+        SettingsWindowController.shared.open()
+    }
+
+    @objc private func statusMenuQuitTapped() {
+        NSApp.terminate(nil)
     }
 
     private func installHotKey() {
@@ -232,10 +266,7 @@ final class NotchHoverController: NSObject {
         if panel.isVisible {
             panel.pickColorDirectly()
         } else {
-            panel.showAnimated(on: screen)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                self?.panel.pickColorDirectly()
-            }
+            panel.pickColorDirectly(on: screen)
         }
     }
 

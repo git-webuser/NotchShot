@@ -19,13 +19,8 @@ final class ThumbnailLoader {
         let url = imageURL
 
         loadTask = Task { @MainActor in
-            let saveDir = AppSettings.saveDirectoryURL
-            let hasBookmark = UserDefaults.standard.data(
-                forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
             let result: NSImage? = await Task.detached(priority: .userInitiated) {
                 autoreleasepool {
-                    let accessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
-                    defer { if accessing { saveDir.stopAccessingSecurityScopedResource() } }
                     guard
                         let src = CGImageSourceCreateWithURL(url as CFURL, nil),
                         let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [

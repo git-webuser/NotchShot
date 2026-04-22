@@ -272,7 +272,11 @@ final class NotchPanelController: NSObject {
     }
 
     /// Trigger pick color directly (e.g. from a hotkey).
-    func pickColorDirectly() {
+    func pickColorDirectly(on screen: NSScreen? = nil) {
+        if let screen {
+            currentScreen = screen
+            updateScreenMetrics(for: screen)
+        }
         pickColor()
     }
 

@@ -401,15 +401,9 @@ private struct TrayScreenshotCell: View {
                 isDragging: $isDragging,
                 isHovered: $isHovered,
                 onTap: {
-                    let saveDir = AppSettings.saveDirectoryURL
-                    let hasBookmark = UserDefaults.standard.data(
-                        forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
-                    let accessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
                     let cfg = NSWorkspace.OpenConfiguration()
                     cfg.activates = true
-                    NSWorkspace.shared.open(shot.url, configuration: cfg) { _, _ in
-                        if accessing { saveDir.stopAccessingSecurityScopedResource() }
-                    }
+                    NSWorkspace.shared.open(shot.url, configuration: cfg)
                 }
             )
         }
@@ -426,15 +420,9 @@ private struct TrayScreenshotCell: View {
         }
         .contextMenu {
             Button("Open") {
-                let saveDir = AppSettings.saveDirectoryURL
-                let hasBookmark = UserDefaults.standard.data(
-                    forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
-                let accessing = hasBookmark && saveDir.startAccessingSecurityScopedResource()
                 let cfg = NSWorkspace.OpenConfiguration()
                 cfg.activates = true
-                NSWorkspace.shared.open(shot.url, configuration: cfg) { _, _ in
-                    if accessing { saveDir.stopAccessingSecurityScopedResource() }
-                }
+                NSWorkspace.shared.open(shot.url, configuration: cfg)
             }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
             Button("Copy") {
@@ -642,10 +630,7 @@ final class TrayDragShimView: NSView, NSDraggingSource {
 
     private var mouseDownPoint: NSPoint?
     /// URL whose security scope we currently hold for an active drag session.
-    /// Storing the exact URL (rather than re-reading AppSettings.saveDirectoryURL
-    /// at stop time) guarantees start/stop pair on the same path, even if the
-    /// save directory changes while dragging.
-    private var dragAccessedURL: URL?
+
 
     init(isPressed: Binding<Bool>, isDragging: Binding<Bool>,
          isHovered: Binding<Bool>, onTap: @escaping () -> Void) {
@@ -737,13 +722,6 @@ final class TrayDragShimView: NSView, NSDraggingSource {
             self.isPressed = false
             self.isDragging = true
         }
-        // Sandbox requires the source app to hold an active security scope for
-        // the file while the drag session runs so the destination can read it.
-        let saveDir = AppSettings.saveDirectoryURL
-        let hasBookmark = UserDefaults.standard.data(
-            forKey: AppSettings.Keys.saveDirectoryBookmark) != nil
-        dragAccessedURL = (hasBookmark && saveDir.startAccessingSecurityScopedResource()) ? saveDir : nil
-
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         let previewSize = NSSize(width: cellSize.width * 0.75, height: cellSize.height * 0.75)
         item.setDraggingFrame(NSRect(origin: .zero, size: previewSize), contents: dragImage)
@@ -757,10 +735,6 @@ final class TrayDragShimView: NSView, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        if let url = dragAccessedURL {
-            url.stopAccessingSecurityScopedResource()
-            dragAccessedURL = nil
-        }
         DispatchQueue.main.async { self.isDragging = false }
     }
 }

@@ -114,7 +114,7 @@ struct CaptureSettingsView: View {
         panel.prompt  = String(localized: "Choose")
         panel.message = String(localized: "Select the folder where screenshots will be saved")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        if let data = try? url.bookmarkData(options: .withSecurityScope,
+        if let data = try? url.bookmarkData(options: [],
                                             includingResourceValuesForKeys: nil,
                                             relativeTo: nil) {
             UserDefaults.standard.set(data, forKey: AppSettings.Keys.saveDirectoryBookmark)
