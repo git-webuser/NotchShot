@@ -72,6 +72,7 @@ private struct PersistedTrayItem: Codable {
     private(set) var items: [TrayItem] = []
 
     private var persistWorkItem: DispatchWorkItem?
+    @ObservationIgnored private var fileWatchers: [UUID: DispatchSourceFileSystemObject] = [:]
 
     private func schedulePersist() {
         persistWorkItem?.cancel()
@@ -82,6 +83,10 @@ private struct PersistedTrayItem: Codable {
 
     init() {
         restoreIfNeeded()
+    }
+
+    deinit {
+        fileWatchers.values.forEach { $0.cancel() }
     }
 
     var colors: [TrayColor] {
@@ -105,22 +110,30 @@ private struct PersistedTrayItem: Codable {
 
     func add(screenshotURL url: URL) {
         items.removeAll {
-            if case .screenshot(let s) = $0 { return s.url == url }
+            if case .screenshot(let s) = $0 {
+                if s.url == url { stopWatching(id: s.id); return true }
+            }
             return false
         }
-        items.insert(.screenshot(TrayScreenshot(url: url)), at: 0)
+        let shot = TrayScreenshot(url: url)
+        items.insert(.screenshot(shot), at: 0)
+        startWatching(shot)
         trim()
         schedulePersist()
     }
 
     func remove(id: UUID) {
+        stopWatching(id: id)
         items.removeAll { $0.id == id }
         schedulePersist()
     }
 
     func remove(screenshotURL url: URL) {
         items.removeAll {
-            if case .screenshot(let s) = $0 { return s.url == url }
+            if case .screenshot(let s) = $0, s.url == url {
+                stopWatching(id: s.id)
+                return true
+            }
             return false
         }
         schedulePersist()
@@ -131,6 +144,36 @@ private struct PersistedTrayItem: Codable {
         guard items.count > limit else { return }
         items = Array(items.prefix(limit))
         schedulePersist()
+    }
+
+    // MARK: File Watching
+
+    private func startWatching(_ shot: TrayScreenshot) {
+        let path = shot.url.path
+        let fd = open(path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.delete, .rename],
+            queue: .main
+        )
+
+        let shotID = shot.id
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            if !FileManager.default.fileExists(atPath: path) {
+                self.remove(id: shotID)
+            }
+        }
+        source.setCancelHandler { close(fd) }
+
+        fileWatchers[shot.id] = source
+        source.resume()
+    }
+
+    private func stopWatching(id: UUID) {
+        fileWatchers.removeValue(forKey: id)?.cancel()
     }
 
     // MARK: Persistence
@@ -169,6 +212,7 @@ private struct PersistedTrayItem: Codable {
             }
         }
         items = restored
+        for case .screenshot(let shot) in items { startWatching(shot) }
     }
 
 

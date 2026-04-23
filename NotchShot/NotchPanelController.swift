@@ -212,17 +212,15 @@ final class NotchPanelController: NSObject {
         ) { [weak self] _ in
             self?.isMenuTracking = false
         }
-        // Space switched — if the panel is visible, rebind it to the active space.
-        // Without this, after extended use or wake-from-sleep macOS can leave the
-        // panel stuck on the old Space, causing the show hotkey to stop working on
-        // other desktops.
+        // Space switched — keep the panel on top when it is already visible.
+        // canJoinAllSpaces keeps it present on all spaces; orderFrontRegardless
+        // ensures it stays above the new space's windows without rebinding.
         let t3 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             guard let self, let panel = self.panel, panel.isVisible else { return }
-            self.rebindPanelToActiveSpace(panel)
             panel.orderFrontRegardless()
         }
         notificationObservers = [t1, t2, t3]
@@ -242,12 +240,15 @@ final class NotchPanelController: NSObject {
         countdownTimer = nil
     }
 
-    /// Forces the panel to rebind to the active Space. Simply reassigning the
-    /// same collectionBehavior after `orderOut` has no effect — AppKit treats it
-    /// as a no-op. Toggling through an empty set forces the window server to
-    /// re-attach the window to the current Space.
-    private func rebindPanelToActiveSpace(_ panel: NSPanel) {
+    /// Shows the panel on the current active Space, then extends it to all spaces.
+    /// Order matters: macOS binds the window to a Space at the moment of orderFront.
+    /// Calling orderFrontRegardless while collectionBehavior is empty forces a
+    /// clean bind to the current active Space. canJoinAllSpaces and stationary are
+    /// added afterwards so the panel appears on all desktops without animating
+    /// during space-switch swipes.
+    private func orderFrontOnActiveSpace(_ panel: NSPanel) {
         panel.collectionBehavior = []
+        panel.orderFrontRegardless()
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
     }
 
@@ -308,7 +309,7 @@ final class NotchPanelController: NSObject {
         interactionState.contentVisibility = 0.0
         panel.alphaValue = 1
 
-        // Position the panel on the target screen BEFORE orderFrontRegardless.
+        // Position the panel on the target screen BEFORE ordering front.
         // macOS binds the window to a Space at the moment of orderFront based on
         // the current frame. Calling setFrame afterwards places it on whichever
         // Space the panel was on last time — especially noticeable after long
@@ -320,12 +321,10 @@ final class NotchPanelController: NSObject {
             panel.setFrame(frameNoNotchHiddenAbove(width: w, on: screen, height: trayPanelHeight), display: false)
         }
 
-        // Force Space-binding recalculation via the empty-set toggle.
-        // .stationary was removed: it is intended for desktop wallpapers/icons and
-        // combined with .canJoinAllSpaces causes the panel to stick to a single
-        // Space after extended use or wake-from-sleep.
-        rebindPanelToActiveSpace(panel)
-        panel.orderFrontRegardless()
+        // Order front while collectionBehavior is empty so macOS binds the panel
+        // to the current active Space, then add canJoinAllSpaces + stationary.
+        // See orderFrontOnActiveSpace for the rationale.
+        orderFrontOnActiveSpace(panel)
 
         if metrics.hasNotch {
             isExpanded = false
