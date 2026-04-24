@@ -319,7 +319,15 @@ final class NotchHoverController: NSObject {
             Log.input.error("CGEvent.tapCreate returned nil — Input Monitoring permission likely missing")
             NotchHoverController.isEventTapInstalled = false
             NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
-            UserFacingError.present(.notchClickUnavailable)
+            // Alert показываем только один раз за «жизнь» разрешения: при первой
+            // ошибке. Повторные запуски без разрешения — тихо, статус виден в Settings.
+            // Флаг сбрасывается при успешной установке tap, поэтому если пользователь
+            // сначала выдаст разрешение, а потом отзовёт — alert покажется снова.
+            let alreadyShown = UserDefaults.standard.bool(forKey: AppSettings.Keys.notchClickAlertShown)
+            if !alreadyShown {
+                UserDefaults.standard.set(true, forKey: AppSettings.Keys.notchClickAlertShown)
+                UserFacingError.present(.notchClickUnavailable)
+            }
             return
         }
 
@@ -336,6 +344,9 @@ final class NotchHoverController: NSObject {
         CGEvent.tapEnable(tap: tap, enable: true)
         NotchHoverController.isEventTapInstalled = true
         NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
+        // Tap установлен — сбрасываем флаг чтобы при следующем отзыве разрешения
+        // пользователь снова увидел объясняющий alert.
+        UserDefaults.standard.removeObject(forKey: AppSettings.Keys.notchClickAlertShown)
     }
 
     private func uninstallEventTap() {
@@ -347,6 +358,9 @@ final class NotchHoverController: NSObject {
             self.eventTapSource = nil
         }
         self.eventTap = nil
+        // Сбрасываем статус: tap снят, Settings должен показать актуальное состояние.
+        NotchHoverController.isEventTapInstalled = false
+        NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
     }
 
     private func handleGlobalLeftMouseDown() {

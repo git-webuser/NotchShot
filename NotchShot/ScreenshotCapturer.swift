@@ -8,20 +8,24 @@ import OSLog
 final class ScreenshotCapturer {
     private let fm = FileManager.default
 
-    // Текущий запущенный процесс screencapture. Доступ сериализован через lock,
-    // потому что captureToTemp работает на background-очереди, а terminateCurrentCapture
-    // может прийти с main thread при sleep/wake/terminate.
+    // Текущий процесс и флаг отмены сериализованы через один lock:
+    // captureToTemp идёт на background-очереди, terminateCurrentCapture — с main.
     private let processLock = NSLock()
     private var _currentProcess: Process?
-    private var currentProcess: Process? {
-        get { processLock.withLock { _currentProcess } }
-        set { processLock.withLock { _currentProcess = newValue } }
-    }
+    private var _wasCancelled: Bool = false
 
-    /// Прерывает текущий запущенный screencapture(1), если он есть.
+    /// True если последний вызов captureToTemp/captureRectToTemp/captureWindowIDToTemp
+    /// вернул nil из-за явной отмены (sleep/wake), а не из-за сбоя screencapture.
+    /// ScreenshotService читает это чтобы не показывать ошибку пользователю.
+    private(set) var lastCaptureWasCancelled: Bool = false
+
+    /// Прерывает текущий запущенный screencapture(1).
     /// Безопасно вызывать с любого потока.
     func terminateCurrentCapture() {
-        currentProcess?.terminate()
+        processLock.withLock {
+            _wasCancelled = true
+            _currentProcess?.terminate()
+        }
     }
 
     func captureToTemp(mode: CaptureMode, preferredScreen: NSScreen?) -> URL? {
@@ -81,26 +85,53 @@ final class ScreenshotCapturer {
 
     @discardableResult
     private func run(_ arguments: [String]) -> Bool {
-        autoreleasepool {
+        // (#2) Запрещаем параллельный запуск: второй capture молча отклоняется.
+        // Кейсы: hotkey spam, delayed + direct capture, thumbnail/overlay race.
+        let alreadyRunning = processLock.withLock { _currentProcess != nil }
+        if alreadyRunning {
+            Log.capture.warning("screencapture: ignored concurrent launch — already running")
+            lastCaptureWasCancelled = true
+            return false
+        }
+
+        return autoreleasepool {
+            // Сбрасываем флаги перед новым запуском.
+            processLock.withLock { _wasCancelled = false }
+            lastCaptureWasCancelled = false
+
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
             process.arguments = arguments
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError  = pipe
+
+            // (#3) Сохраняем ДО process.run(), чтобы terminateCurrentCapture()
+            // мог добраться до процесса сразу после запуска, без race-окна.
+            processLock.withLock { _currentProcess = process }
+
             do {
                 try process.run()
-                currentProcess = process
                 process.waitUntilExit()
-                currentProcess = nil
+
+                let wasCancelled = processLock.withLock {
+                    _currentProcess = nil
+                    return _wasCancelled
+                }
+
+                // (#1) Отмена через terminate() — это не failure, просто cancel.
+                if wasCancelled || process.terminationReason == .uncaughtSignal {
+                    lastCaptureWasCancelled = true
+                    return false
+                }
+
                 if process.terminationStatus != 0 {
                     Log.capture.error("screencapture exited \(process.terminationStatus), args: \(arguments)")
+                    return false
                 }
-                // terminate() делает exitCode == SIGTERM (-15), не 0 — это не ошибка.
-                let terminated = process.terminationReason == .uncaughtSignal
-                return !terminated && process.terminationStatus == 0
+                return true
             } catch {
-                currentProcess = nil
+                processLock.withLock { _currentProcess = nil }
                 Log.capture.error("screencapture launch failed: \(error), args: \(arguments)")
                 return false
             }

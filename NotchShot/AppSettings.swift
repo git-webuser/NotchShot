@@ -28,6 +28,10 @@ enum AppSettings {
         static let includeWindowShadow   = "includeWindowShadow"
         static let defaultCaptureMode    = "defaultCaptureMode"
         static let defaultTimerDelay     = "defaultTimerDelay"
+        // Permissions
+        /// true после первого показа alert'а об отсутствии Input Monitoring разрешения.
+        /// Сбрасывается при успешной установке event tap.
+        static let notchClickAlertShown  = "notchClickAlertShown"
         // Tray
         static let trayMaxItems          = "trayMaxItems"
         static let persistTray           = "persistTray"
@@ -118,7 +122,10 @@ enum AppSettings {
     }
 
     static func withSaveDirectoryAccess<T>(_ block: (URL) throws -> T) throws -> T {
-        return try block(saveDirectoryURL)
+        let url = saveDirectoryURL
+        let didStart = url.startAccessingSecurityScopedResource()
+        defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+        return try block(url)
     }
     static var filenamePreset: FilenamePreset {
         let raw = UserDefaults.standard.string(forKey: Keys.filenamePreset) ?? "compact"
