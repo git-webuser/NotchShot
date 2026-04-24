@@ -277,11 +277,14 @@ final class ColorPickerHUD {
     // Fixed size — does not change with format or hint switches.
     // Magnifier 3×3 × 14 pt = 42, padding 8×2 = 16, text area ~182, total width ~240.
 
-    private let offsetX: CGFloat =  18
-    private let offsetY: CGFloat = -30
+    private let sideGap:     CGFloat = 18
+    private let verticalGap: CGFloat = 14
+    private let hysteresis:  CGFloat = 24
 
-    private enum HUDSide { case right, left }
-    private var hudSide: HUDSide = .right
+    private enum HUDSide         { case right, left  }
+    private enum HUDVerticalSide { case below, above }
+    private var hudSide:         HUDSide         = .right
+    private var hudVerticalSide: HUDVerticalSide = .below
     private var isFlipping = false
 
     // MARK: - Public API
@@ -296,8 +299,9 @@ final class ColorPickerHUD {
         currentPhase  = .idlePlaceholder
         currentMagnifier = .empty
 
-        hudSide = .right
-        isFlipping = false
+        hudSide         = .right
+        hudVerticalSide = .below
+        isFlipping      = false
 
         ensurePanel()
         guard let panel else { return }
@@ -370,55 +374,69 @@ final class ColorPickerHUD {
         let size = CGSize(width: 240, height: 62)
         let safe = sf.insetBy(dx: 8, dy: 8)
 
-        // Hysteresis: flip right→left when right side overflows the safe area;
-        // flip back only when right fits with an extra 20 pt margin.
-        let rightOverflows       = cursorPos.x + offsetX + size.width > safe.maxX
-        let rightFitsComfortably = cursorPos.x + offsetX + size.width + 20 <= safe.maxX
+        // Horizontal hysteresis: right → left when right overflows; back when fits + margin.
+        let rightMaxX        = cursorPos.x + sideGap + size.width
+        let rightOverflows   = rightMaxX > safe.maxX
+        let rightComfortable = rightMaxX + hysteresis <= safe.maxX
 
         let desiredSide: HUDSide
         switch hudSide {
-        case .right: desiredSide = rightOverflows       ? .left  : .right
-        case .left:  desiredSide = rightFitsComfortably ? .right : .left
+        case .right: desiredSide = rightOverflows   ? .left  : .right
+        case .left:  desiredSide = rightComfortable ? .right : .left
         }
 
-        // Accept the flip only when no animation is already in progress.
-        // isFlipping prevents overlapping fade animations that cause visible oscillation.
-        if desiredSide != hudSide && !isFlipping {
-            hudSide = desiredSide
-            isFlipping = true
-            // Straight-line movement passes the HUD through the cursor hotspot.
-            // Fade out instead; moveToPosition continues repositioning during the fade,
-            // so no stale frame is needed in the completion handler.
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.06
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                panel.animator().alphaValue = 0
-            } completionHandler: { [weak self, weak panel] in
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.10
-                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                    panel?.animator().alphaValue = 1
-                } completionHandler: { [weak self] in
-                    self?.isFlipping = false
-                }
-            }
+        // Vertical hysteresis: below → above when below overflows; back when fits + margin.
+        let belowMinY        = cursorPos.y - size.height - verticalGap
+        let belowOverflows   = belowMinY < safe.minY
+        let belowComfortable = belowMinY - hysteresis >= safe.minY
+
+        let desiredVertical: HUDVerticalSide
+        switch hudVerticalSide {
+        case .below: desiredVertical = belowOverflows   ? .above : .below
+        case .above: desiredVertical = belowComfortable ? .below : .above
         }
 
-        // Always reposition based on the committed hudSide so the panel
-        // tracks the cursor in real-time even while fading.
-        panel.setFrame(frameOnSide(hudSide, cursor: cursorPos, safe: safe, size: size),
-                       display: false)
+        let didFlip = desiredSide != hudSide || desiredVertical != hudVerticalSide
+        if didFlip && !isFlipping {
+            hudSide         = desiredSide
+            hudVerticalSide = desiredVertical
+            fadeThroughFlip(panel)
+        }
+
+        // Frame is set immediately every call — no animation lag, no cursor overlap.
+        panel.setFrame(
+            frameOnSide(hudSide, vertical: hudVerticalSide,
+                        cursor: cursorPos, safe: safe, size: size),
+            display: false
+        )
     }
 
-    private func frameOnSide(_ side: HUDSide, cursor: NSPoint,
-                              safe: CGRect, size: CGSize) -> NSRect {
-        var x: CGFloat = side == .right ? cursor.x + offsetX
-                                        : cursor.x - size.width - offsetX
-        var y = cursor.y + offsetY
-        if y + size.height > safe.maxY { y = cursor.y + 14 }
+    private func frameOnSide(_ side: HUDSide, vertical: HUDVerticalSide,
+                              cursor: NSPoint, safe: CGRect, size: CGSize) -> NSRect {
+        var x: CGFloat = side == .right ? cursor.x + sideGap
+                                        : cursor.x - size.width - sideGap
+        var y: CGFloat = vertical == .below ? cursor.y - size.height - verticalGap
+                                            : cursor.y + verticalGap
         x = min(max(x, safe.minX), safe.maxX - size.width)
         y = min(max(y, safe.minY), safe.maxY - size.height)
         return NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    private func fadeThroughFlip(_ panel: NSPanel) {
+        isFlipping = true
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.05
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak self, weak panel] in
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.08
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel?.animator().alphaValue = 1
+            } completionHandler: { [weak self] in
+                self?.isFlipping = false
+            }
+        }
     }
 
     // MARK: - Panel management
