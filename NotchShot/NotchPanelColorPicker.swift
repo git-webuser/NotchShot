@@ -15,6 +15,19 @@ final class ColorPickingCoordinator {
     var resetRoute: () -> Void = {}
     var hideCursorBeforeHide: () -> Void = {}
 
+    /// Прерывает активную сессию выбора цвета без уведомления через колбэки.
+    /// Вызывается из invalidatePanelAfterEnvironmentChange, когда среда меняется
+    /// до завершения пользователем действия (sleep, display change и т. д.).
+    @MainActor
+    func cancel() {
+        guard isInFlight else { return }
+        activeSampler?.cancel()
+        activeSampler = nil
+        hud.hide(animated: false)
+        isInFlight = false
+        // resetRoute не вызываем — панель уже сносится вызывающей стороной.
+    }
+
     @MainActor
     func start(panelIsVisible: Bool, preferredScreen: NSScreen?) {
         guard !isInFlight else { return }

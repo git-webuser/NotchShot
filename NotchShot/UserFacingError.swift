@@ -28,12 +28,17 @@ enum UserFacingError {
         /// not be resolved or access was denied.
         case saveDirectoryInaccessible(url: URL)
 
+        /// CGEvent.tapCreate returned nil — the user hasn't granted
+        /// Input Monitoring permission in Privacy & Security settings.
+        case notchClickUnavailable
+
         /// Stable key used for throttling; identical kinds share the same cooldown.
         var throttleKey: String {
             switch self {
             case .screenCaptureFailed:       return "screenCaptureFailed"
             case .colorPickerUnavailable:    return "colorPickerUnavailable"
             case .saveDirectoryInaccessible: return "saveDirectoryInaccessible"
+            case .notchClickUnavailable:     return "notchClickUnavailable"
             }
         }
 
@@ -45,6 +50,8 @@ enum UserFacingError {
                 return String(localized: "Color picker unavailable")
             case .saveDirectoryInaccessible:
                 return String(localized: "Save folder is not accessible")
+            case .notchClickUnavailable:
+                return String(localized: "Notch click unavailable")
             }
         }
 
@@ -64,6 +71,8 @@ enum UserFacingError {
                 return base
             case .saveDirectoryInaccessible(let url):
                 return String(format: String(localized: "NotchShot can't write screenshots to \"%@\". The folder may have been moved, renamed, or access was revoked. Choose a new save folder in Settings \u{2192} Capture."), url.lastPathComponent)
+            case .notchClickUnavailable:
+                return String(localized: "Clicking the notch area to open the panel requires Input Monitoring permission. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Input Monitoring.")
             }
         }
 
@@ -73,6 +82,8 @@ enum UserFacingError {
             switch self {
             case .screenCaptureFailed, .colorPickerUnavailable:
                 return .openScreenRecordingSettings
+            case .notchClickUnavailable:
+                return .openInputMonitoringSettings
             case .saveDirectoryInaccessible:
                 return .openAppSettings
             }
@@ -81,11 +92,13 @@ enum UserFacingError {
 
     enum Remediation {
         case openScreenRecordingSettings
+        case openInputMonitoringSettings
         case openAppSettings
 
         var buttonTitle: String {
             switch self {
             case .openScreenRecordingSettings: return String(localized: "Open Privacy Settings")
+            case .openInputMonitoringSettings: return String(localized: "Open Privacy Settings")
             case .openAppSettings:             return String(localized: "Open NotchShot Settings")
             }
         }
@@ -95,6 +108,12 @@ enum UserFacingError {
             case .openScreenRecordingSettings:
                 if let url = URL(string:
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+                {
+                    NSWorkspace.shared.open(url)
+                }
+            case .openInputMonitoringSettings:
+                if let url = URL(string:
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
                 {
                     NSWorkspace.shared.open(url)
                 }

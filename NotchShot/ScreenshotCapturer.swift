@@ -8,6 +8,22 @@ import OSLog
 final class ScreenshotCapturer {
     private let fm = FileManager.default
 
+    // Текущий запущенный процесс screencapture. Доступ сериализован через lock,
+    // потому что captureToTemp работает на background-очереди, а terminateCurrentCapture
+    // может прийти с main thread при sleep/wake/terminate.
+    private let processLock = NSLock()
+    private var _currentProcess: Process?
+    private var currentProcess: Process? {
+        get { processLock.withLock { _currentProcess } }
+        set { processLock.withLock { _currentProcess = newValue } }
+    }
+
+    /// Прерывает текущий запущенный screencapture(1), если он есть.
+    /// Безопасно вызывать с любого потока.
+    func terminateCurrentCapture() {
+        currentProcess?.terminate()
+    }
+
     func captureToTemp(mode: CaptureMode, preferredScreen: NSScreen?) -> URL? {
         let tmpURL = makeTempURL()
         var args: [String] = ["-x"]
@@ -74,12 +90,17 @@ final class ScreenshotCapturer {
             process.standardError  = pipe
             do {
                 try process.run()
+                currentProcess = process
                 process.waitUntilExit()
+                currentProcess = nil
                 if process.terminationStatus != 0 {
                     Log.capture.error("screencapture exited \(process.terminationStatus), args: \(arguments)")
                 }
-                return process.terminationStatus == 0
+                // terminate() делает exitCode == SIGTERM (-15), не 0 — это не ошибка.
+                let terminated = process.terminationReason == .uncaughtSignal
+                return !terminated && process.terminationStatus == 0
             } catch {
+                currentProcess = nil
                 Log.capture.error("screencapture launch failed: \(error), args: \(arguments)")
                 return false
             }

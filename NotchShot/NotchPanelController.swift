@@ -156,6 +156,18 @@ final class NotchPanelController: NSObject {
     /// Читается из NotchHoverController чтобы не уходить в «закрыть невидимую панель».
     private(set) var needsSpaceRebind = false
 
+    /// Монотонно возрастающий счётчик анимационных фаз. Каждая новая анимация
+    /// фиксирует текущее значение; устаревшие completion handler'ы сравнивают
+    /// с ним и завершаются без изменения состояния. Это предотвращает «мёртвые
+    /// состояния» панели при быстрых открытие→закрытие или sleep прямо
+    /// во время анимации.
+    private var animationGeneration: Int = 0
+    @discardableResult
+    private func bumpGeneration() -> Int {
+        animationGeneration &+= 1
+        return animationGeneration
+    }
+
     // MARK: Internal (accessible from extension files)
     var currentScreen: NSScreen?
     let rootState = NotchPanelRootState()
@@ -203,12 +215,13 @@ final class NotchPanelController: NSObject {
         }
         screenshot.onThumbnailTapped = { [weak self] in
             guard let self else { return }
-            if self.isVisible {
+            // Тот же guard что в toggleAnimated: после sleep/Space-switch AppKit
+            // может считать панель isVisible, хотя пользователь её не видит.
+            if self.isVisible && !self.needsSpaceRebind {
                 self.switchToTray()
             } else {
                 guard let screen = self.currentScreen ?? NSScreen.main else { return }
-                self.showAnimated(on: screen)
-                // Slight delay so show animation starts before tray transition
+                self.showAnimated(on: screen, forceRebind: self.needsSpaceRebind)
                 DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.showBeforeTray) {
                     self.switchToTray()
                 }
@@ -243,7 +256,7 @@ final class NotchPanelController: NSObject {
             if let panel = self.panel, panel.isVisible {
                 panel.orderFrontRegardless()
             } else {
-                self.needsSpaceRebind = true
+                self.markPanelSpaceBindingStale()
             }
         }
 
@@ -316,6 +329,17 @@ final class NotchPanelController: NSObject {
     /// избавиться от устаревшей WindowServer / Spaces привязки.
     private func invalidatePanelAfterEnvironmentChange() {
         needsSpaceRebind = true
+        bumpGeneration()
+
+        // Отменяем любые активные overlay-сессии: если sleep/wake случился во время
+        // выбора области, окна или цвета, preSelectionInFlight / colorPicker.isInFlight
+        // зависнут и через suppressesGlobalAutoHide сделают панель неуправляемой.
+        selectionOverlay.cancel()
+        windowPickerOverlay.cancel()
+        colorPicker.cancel()
+        screenshot.cancelCurrentCapture()
+        preSelectionInFlight = false
+
         countdownTimer?.invalidate()
         countdownTimer = nil
         panel?.orderOut(nil)
@@ -324,6 +348,7 @@ final class NotchPanelController: NSObject {
         removeEscMonitor()
         interactionState.isEnabled = true
         isExpanded = false
+        trayTransitionInFlight = false
         route = .main
         rootState.progress = 0.0
         rootState.countdownVisible = 0.0
@@ -401,6 +426,7 @@ final class NotchPanelController: NSObject {
             needsSpaceRebind = false
         }
 
+        let gen = bumpGeneration()
         interactionState.isEnabled = false
         interactionState.contentVisibility = 0.0
         panel.alphaValue = 1
@@ -433,8 +459,9 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(target, display: true)
             } completionHandler: { [weak self] in
-                self?.interactionState.isEnabled = true
-                self?.isExpanded = true
+                guard let self, self.animationGeneration == gen else { return }
+                self.interactionState.isEnabled = true
+                self.isExpanded = true
             }
         } else {
             isExpanded = true
@@ -452,7 +479,8 @@ final class NotchPanelController: NSObject {
                 }
                 panel.animator().setFrame(visible, display: true)
             } completionHandler: { [weak self] in
-                self?.interactionState.isEnabled = true
+                guard let self, self.animationGeneration == gen else { return }
+                self.interactionState.isEnabled = true
             }
         }
     }
@@ -474,6 +502,7 @@ final class NotchPanelController: NSObject {
         }
 
         interactionState.isEnabled = false
+        bumpGeneration()
 
         guard let screen = (currentScreen ?? NSScreen.main ?? NSScreen.screens.first) else {
             panel.orderOut(nil)
@@ -493,12 +522,13 @@ final class NotchPanelController: NSObject {
     // Phase 2 — shape morphs back to Main (Y axis).
     // Phase 3 — standard Main close animation (X axis).
     private func hideTrayThenMain(panel: NSPanel, screen: NSScreen, completion: (() -> Void)?) {
+        let gen = animationGeneration
         // Instantly hide both tray and main content (otherwise main bleeds through in phase 2).
         rootState.trayContentVisible = 0.0
         interactionState.contentVisibility = 0.0
 
         DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { [weak self, weak panel] in
-            guard let self, let panel else { return }
+            guard let self, let panel, self.animationGeneration == gen else { return }
 
             // Phase 2: morph shape tray → main (Y axis via progress, width unchanged).
             self.route = .main
@@ -508,7 +538,7 @@ final class NotchPanelController: NSObject {
 
             // Phase 3: kick off the standard main-panel close.
             DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.hideAnimation) { [weak self, weak panel] in
-                guard let self, let panel else { return }
+                guard let self, let panel, self.animationGeneration == gen else { return }
                 self.rootState.trayContentVisible = 1.0  // reset for next open
                 self.hideMainPanel(panel: panel, screen: screen, completion: completion)
             }
@@ -516,6 +546,7 @@ final class NotchPanelController: NSObject {
     }
 
     private func hideMainPanel(panel: NSPanel, screen: NSScreen, completion: (() -> Void)?) {
+        let gen = animationGeneration
         if metrics.hasNotch {
             isExpanded = false
             let target = frameForWidth(collapsedWidth, on: screen, height: trayPanelHeight)
@@ -530,14 +561,15 @@ final class NotchPanelController: NSObject {
                 panel.animator().setFrame(target, display: true)
             } completionHandler: { [weak self, weak panel] in
                 panel?.orderOut(nil)
-                self?.interactionState.isEnabled = true
-                self?.isExpanded = false
-                self?.route = .main
-                self?.rootState.progress = 0.0
-                self?.rootState.isTrayPinned = false
-                self?.rootState.countdownVisible = 0.0
-                self?.rootState.countdownSeconds = 0
-                self?.rootState.countdownTotal = 0
+                guard let self, self.animationGeneration == gen else { return }
+                self.interactionState.isEnabled = true
+                self.isExpanded = false
+                self.route = .main
+                self.rootState.progress = 0.0
+                self.rootState.isTrayPinned = false
+                self.rootState.countdownVisible = 0.0
+                self.rootState.countdownSeconds = 0
+                self.rootState.countdownTotal = 0
                 completion?()
             }
         } else {
@@ -556,14 +588,15 @@ final class NotchPanelController: NSObject {
                 panel.animator().setFrame(hidden, display: true)
             } completionHandler: { [weak self, weak panel] in
                 panel?.orderOut(nil)
-                self?.interactionState.isEnabled = true
-                self?.isExpanded = false
-                self?.route = .main
-                self?.rootState.progress = 0.0
-                self?.rootState.isTrayPinned = false
-                self?.rootState.countdownVisible = 0.0
-                self?.rootState.countdownSeconds = 0
-                self?.rootState.countdownTotal = 0
+                guard let self, self.animationGeneration == gen else { return }
+                self.interactionState.isEnabled = true
+                self.isExpanded = false
+                self.route = .main
+                self.rootState.progress = 0.0
+                self.rootState.isTrayPinned = false
+                self.rootState.countdownVisible = 0.0
+                self.rootState.countdownSeconds = 0
+                self.rootState.countdownTotal = 0
                 completion?()
             }
         }
@@ -713,6 +746,7 @@ final class NotchPanelController: NSObject {
         guard let panel else { return }
         guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else { return }
 
+        let gen = bumpGeneration()
         trayTransitionInFlight = true
         interactionState.isEnabled = false
 
@@ -727,7 +761,7 @@ final class NotchPanelController: NSObject {
             // Step 2: give SwiftUI one render pass to process the hide before
             // starting the shape morph.
             DispatchQueue.main.asyncAfter(deadline: .now() + PanelTiming.oneFrameSettle) { [weak self, weak panel] in
-                guard let self, let panel else { return }
+                guard let self, let panel, self.animationGeneration == gen else { return }
 
                 self.route = .main
                 let targetFrame = self.frameForWidth(
@@ -741,9 +775,10 @@ final class NotchPanelController: NSObject {
                     ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                     panel.animator().setFrame(targetFrame, display: true)
                 } completionHandler: { [weak self] in
-                    self?.trayTransitionInFlight = false
-                    self?.interactionState.isEnabled = true
-                    self?.rootState.trayContentVisible = 1.0  // reset for next open
+                    guard let self, self.animationGeneration == gen else { return }
+                    self.trayTransitionInFlight = false
+                    self.interactionState.isEnabled = true
+                    self.rootState.trayContentVisible = 1.0  // reset for next open
                 }
 
                 // Y axis: shape morph — same curve, same runloop cycle as X
@@ -763,8 +798,9 @@ final class NotchPanelController: NSObject {
                 ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.8, 0.25, 1.0)
                 panel.animator().setFrame(targetFrame, display: true)
             } completionHandler: { [weak self] in
-                self?.trayTransitionInFlight = false
-                self?.interactionState.isEnabled = true
+                guard let self, self.animationGeneration == gen else { return }
+                self.trayTransitionInFlight = false
+                self.interactionState.isEnabled = true
             }
             DispatchQueue.main.async {
                 withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {

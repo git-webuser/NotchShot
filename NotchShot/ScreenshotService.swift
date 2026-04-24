@@ -25,6 +25,12 @@ final class ScreenshotService {
         }
     }
 
+    /// Прерывает текущий запущенный screencapture(1), если он активен.
+    /// Безопасно вызывать с любого потока; используется при sleep/wake/display change.
+    func cancelCurrentCapture() {
+        capturer.terminateCurrentCapture()
+    }
+
     func capture(mode: CaptureMode, delaySeconds: Int, preferredScreen: NSScreen?) {
         let workItem = DispatchWorkItem { [weak self] in
             self?.runCapture(mode: mode, preferredScreen: preferredScreen)

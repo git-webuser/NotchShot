@@ -37,6 +37,9 @@ final class ScreenshotFileStore {
             let candidate = dir.appendingPathComponent("\(base) \(n).\(ext)")
             if !fm.fileExists(atPath: candidate.path) { return candidate }
         }
-        return url
+        // Все 999 слотов заняты — возвращаем путь с уникальным суффиксом.
+        // Старый fallback возвращал url, который уже существует, что роняло moveItem.
+        let uid = UUID().uuidString.prefix(8)
+        return dir.appendingPathComponent("\(base) \(uid).\(ext)")
     }
 }

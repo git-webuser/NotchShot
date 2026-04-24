@@ -1,9 +1,14 @@
 import AppKit
 import CoreGraphics
 import Carbon
+import OSLog
 
 final class NotchHoverController: NSObject {
     private let panel: NotchPanelController
+
+    /// True если CGEvent tap для области челки установлен успешно.
+    /// Читается из GeneralSettingsView для отображения статуса разрешений.
+    static private(set) var isEventTapInstalled: Bool = false
 
     private var statusItem: NSStatusItem?
     private var eventTap: CFMachPort?
@@ -252,8 +257,11 @@ final class NotchHoverController: NSObject {
     }
 
     private func triggerCapture(mode: CaptureMode, on screen: NSScreen) {
-        // If panel is visible, hide it first, then capture
-        if panel.isVisible {
+        // Инвариант: если needsSpaceRebind == true, panel.isVisible ненадёжен —
+        // панель может быть привязана к другому Space. Не пытаемся её закрывать,
+        // просто идём сразу в capture. Технически capture не сломается и без этой
+        // проверки, но единообразие с остальными open/hide-путями важнее.
+        if panel.isVisible && !panel.needsSpaceRebind {
             panel.hideAnimated { [weak self] in
                 self?.panel.captureDirectly(mode: mode, on: screen)
             }
@@ -263,7 +271,10 @@ final class NotchHoverController: NSObject {
     }
 
     private func triggerPickColor(on screen: NSScreen) {
-        if panel.isVisible {
+        // При stale-состоянии panel.isVisible ненадёжен: панель может быть
+        // привязана к другому Space. Без forceRebind pickColorDirectly() запустится
+        // без обновления currentScreen и пипетка попадёт на не тот экран.
+        if panel.isVisible && !panel.needsSpaceRebind {
             panel.pickColorDirectly()
         } else {
             panel.pickColorDirectly(on: screen)
@@ -305,10 +316,17 @@ final class NotchHoverController: NSObject {
             callback: callback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
+            Log.input.error("CGEvent.tapCreate returned nil — Input Monitoring permission likely missing")
+            NotchHoverController.isEventTapInstalled = false
+            NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
+            UserFacingError.present(.notchClickUnavailable)
             return
         }
 
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            Log.input.error("CFMachPortCreateRunLoopSource returned nil for event tap")
+            NotchHoverController.isEventTapInstalled = false
+            NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
             return
         }
 
@@ -316,6 +334,8 @@ final class NotchHoverController: NSObject {
         self.eventTapSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        NotchHoverController.isEventTapInstalled = true
+        NotificationCenter.default.post(name: .notchClickStatusChanged, object: nil)
     }
 
     private func uninstallEventTap() {
@@ -384,6 +404,12 @@ final class NotchHoverController: NSObject {
         let y = vf.maxY
         return CGRect(x: x, y: y, width: width, height: menuBarHeight)
     }
+}
+
+extension Notification.Name {
+    /// Постится при изменении статуса CGEvent tap (установлен / не установлен).
+    /// GeneralSettingsView подписывается через `.onReceive` для обновления индикатора.
+    static let notchClickStatusChanged = Notification.Name("NotchShot.notchClickStatusChanged")
 }
 
 private func fourCharCode(_ string: String) -> OSType {

@@ -7,6 +7,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
+    @State private var notchClickAvailable = NotchHoverController.isEventTapInstalled
 
     var body: some View {
         Form {
@@ -16,6 +17,24 @@ struct GeneralSettingsView: View {
                         AppSettings.setLaunchAtLogin(v)
                         launchAtLogin = AppSettings.launchAtLoginEnabled
                     }
+
+                LabeledContent("Notch click") {
+                    if notchClickAvailable {
+                        Label("Enabled", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button {
+                            UserFacingError.present(.notchClickUnavailable)
+                        } label: {
+                            Label("Permission required", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .notchClickStatusChanged)) { _ in
+                notchClickAvailable = NotchHoverController.isEventTapInstalled
             }
 
             Section("Appearance") {
