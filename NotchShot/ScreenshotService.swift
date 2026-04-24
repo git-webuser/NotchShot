@@ -50,7 +50,7 @@ final class ScreenshotService {
             guard let self else { return }
             if let tmpURL = self.capturer.captureRectToTemp(rect) {
                 self.handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
-            } else if !self.capturer.lastCaptureWasCancelled {
+            } else if !self.capturer.lastCaptureWasCancelled && !self.capturer.lastCaptureWasBusy {
                 Log.capture.error("captureRect failed: \(rect.debugDescription)")
                 UserFacingError.present(.screenCaptureFailed(reason: nil))
             }
@@ -62,7 +62,7 @@ final class ScreenshotService {
             guard let self else { return }
             if let tmpURL = self.capturer.captureWindowIDToTemp(windowID) {
                 self.handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
-            } else if !self.capturer.lastCaptureWasCancelled {
+            } else if !self.capturer.lastCaptureWasCancelled && !self.capturer.lastCaptureWasBusy {
                 Log.capture.error("captureWindowID failed: \(windowID)")
                 UserFacingError.present(.screenCaptureFailed(reason: nil))
             }
@@ -74,8 +74,8 @@ final class ScreenshotService {
     private func runCapture(mode: CaptureMode, preferredScreen: NSScreen?) {
         if let tmpURL = capturer.captureToTemp(mode: mode, preferredScreen: preferredScreen) {
             handleCapturedFile(at: tmpURL, preferredScreen: preferredScreen)
-        } else if !capturer.lastCaptureWasCancelled {
-            // Не показываем ошибку если capture был отменён программно (sleep/wake).
+        } else if !capturer.lastCaptureWasCancelled && !capturer.lastCaptureWasBusy {
+            // Не показываем ошибку если capture был отменён или отклонён как дублирующий.
             Log.capture.error("capture failed for mode: \(String(describing: mode))")
             UserFacingError.present(.screenCaptureFailed(reason: nil))
         }

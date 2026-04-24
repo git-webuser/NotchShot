@@ -23,13 +23,21 @@ struct GeneralSettingsView: View {
                         Label("Enabled", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     } else {
-                        Button {
-                            UserFacingError.present(.notchClickUnavailable)
-                        } label: {
-                            Label("Permission required", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                        HStack(spacing: 8) {
+                            Button {
+                                UserFacingError.present(.notchClickUnavailable)
+                            } label: {
+                                Label("Permission required", systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button("Retry") {
+                                NotificationCenter.default.post(name: .retryEventTapInstall, object: nil)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }

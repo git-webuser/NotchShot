@@ -8,23 +8,34 @@ import OSLog
 final class ScreenshotCapturer {
     private let fm = FileManager.default
 
-    // Текущий процесс и флаг отмены сериализованы через один lock:
-    // captureToTemp идёт на background-очереди, terminateCurrentCapture — с main.
+    // Все mutable поля защищены одним lock'ом: captureToTemp — background queue,
+    // terminateCurrentCapture — main thread. Флаги результата (_lastCaptureWas*)
+    // тоже под lock'ом, чтобы избежать data race при чтении из ScreenshotService.
     private let processLock = NSLock()
     private var _currentProcess: Process?
     private var _wasCancelled: Bool = false
+    private var _lastCaptureWasCancelled: Bool = false
+    private var _lastCaptureWasBusy: Bool = false
 
-    /// True если последний вызов captureToTemp/captureRectToTemp/captureWindowIDToTemp
-    /// вернул nil из-за явной отмены (sleep/wake), а не из-за сбоя screencapture.
-    /// ScreenshotService читает это чтобы не показывать ошибку пользователю.
-    private(set) var lastCaptureWasCancelled: Bool = false
+    /// True если последний capture завершился из-за явной отмены (sleep/wake).
+    /// Семантически отличается от busy: процесс был запущен, но прерван.
+    var lastCaptureWasCancelled: Bool { processLock.withLock { _lastCaptureWasCancelled } }
+
+    /// True если последний capture был отклонён, потому что другой уже выполнялся.
+    /// Не показываем ошибку пользователю, но это не cancel — процесс вообще не стартовал.
+    var lastCaptureWasBusy: Bool { processLock.withLock { _lastCaptureWasBusy } }
 
     /// Прерывает текущий запущенный screencapture(1).
     /// Безопасно вызывать с любого потока.
     func terminateCurrentCapture() {
         processLock.withLock {
             _wasCancelled = true
-            _currentProcess?.terminate()
+            // (#3) Проверяем isRunning: если process.run() ещё не вызван,
+            // terminate() на незапущенном Process не определён. _wasCancelled=true
+            // достаточно — run() прочитает флаг после waitUntilExit().
+            if let process = _currentProcess, process.isRunning {
+                process.terminate()
+            }
         }
     }
 
@@ -90,14 +101,17 @@ final class ScreenshotCapturer {
         let alreadyRunning = processLock.withLock { _currentProcess != nil }
         if alreadyRunning {
             Log.capture.warning("screencapture: ignored concurrent launch — already running")
-            lastCaptureWasCancelled = true
+            processLock.withLock { _lastCaptureWasBusy = true }
             return false
         }
 
         return autoreleasepool {
-            // Сбрасываем флаги перед новым запуском.
-            processLock.withLock { _wasCancelled = false }
-            lastCaptureWasCancelled = false
+            // Сбрасываем все флаги перед новым запуском.
+            processLock.withLock {
+                _wasCancelled = false
+                _lastCaptureWasCancelled = false
+                _lastCaptureWasBusy = false
+            }
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
@@ -121,7 +135,7 @@ final class ScreenshotCapturer {
 
                 // (#1) Отмена через terminate() — это не failure, просто cancel.
                 if wasCancelled || process.terminationReason == .uncaughtSignal {
-                    lastCaptureWasCancelled = true
+                    processLock.withLock { _lastCaptureWasCancelled = true }
                     return false
                 }
 

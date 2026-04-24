@@ -52,11 +52,18 @@ final class NotchHoverController: NSObject {
             name: UserDefaults.didChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onRetryEventTapInstall),
+            name: .retryEventTapInstall,
+            object: nil
+        )
     }
 
     func stop() {
         NotificationCenter.default.removeObserver(self, name: .settingsWindowDidClose, object: nil)
         NotificationCenter.default.removeObserver(self, name: UserDefaults.didChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .retryEventTapInstall, object: nil)
         uninstallEventTap()
         uninstallHotKey()
         uninstallStatusItem()
@@ -64,6 +71,11 @@ final class NotchHoverController: NSObject {
 
     @objc private func onSettingsDidClose() {
         reinstallHotKeysIfNeeded()
+    }
+
+    @objc private func onRetryEventTapInstall() {
+        uninstallEventTap()
+        installEventTap()
     }
 
     @objc private func onUserDefaultsChanged() {
@@ -424,6 +436,10 @@ extension Notification.Name {
     /// Постится при изменении статуса CGEvent tap (установлен / не установлен).
     /// GeneralSettingsView подписывается через `.onReceive` для обновления индикатора.
     static let notchClickStatusChanged = Notification.Name("NotchShot.notchClickStatusChanged")
+
+    /// Постится из GeneralSettingsView при нажатии кнопки Retry.
+    /// NotchHoverController реагирует переустановкой event tap.
+    static let retryEventTapInstall    = Notification.Name("NotchShot.retryEventTapInstall")
 }
 
 private func fourCharCode(_ string: String) -> OSType {
