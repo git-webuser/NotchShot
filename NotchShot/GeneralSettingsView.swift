@@ -40,6 +40,10 @@ struct GeneralSettingsView: View {
                         }
                     }
                 }
+
+                Button("Permissions Setup…") {
+                    FirstLaunchWindowController.shared.show()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .notchClickStatusChanged)) { _ in
                 notchClickAvailable = NotchHoverController.isEventTapInstalled

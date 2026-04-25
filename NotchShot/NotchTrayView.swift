@@ -145,7 +145,8 @@ struct NotchTrayView: View {
                                 }
                             },
                             onOpen: { onHidePanel() },
-                            onRemove: {
+                            onRemove: { trayModel.remove(id: shot.id) },
+                            onMoveToTrash: {
                                 trayModel.remove(id: shot.id)
                                 NSWorkspace.shared.recycle([shot.url])
                             }
@@ -242,7 +243,7 @@ struct TrayDeleteBadge: View {
                     .onEnded   { _ in action() }
             )
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(systemName == "xmark.circle.fill" ? "Move to trash" : (isOn ? "Unpin" : "Pin"))
+            .accessibilityLabel(systemName == "xmark.circle.fill" ? "Remove from tray" : (isOn ? "Unpin" : "Pin"))
     }
 }
 
@@ -340,6 +341,7 @@ private struct TrayScreenshotCell: View {
     let setHovered: (Bool) -> Void
     let onOpen: () -> Void
     let onRemove: () -> Void
+    let onMoveToTrash: () -> Void
 
     @State private var loader = ThumbnailLoader()
     @State private var isPressed    = false
@@ -454,9 +456,9 @@ private struct TrayScreenshotCell: View {
                 }
             }
             Divider()
-            Button("Move to Trash") {
+            Button("Move to Trash", role: .destructive) {
                 withAnimation(.easeIn(duration: 0.16)) { isRemoving = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onRemove() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { onMoveToTrash() }
             }
         }
         .task(id: shot.url) { loader.load(imageURL: shot.url) }

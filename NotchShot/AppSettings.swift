@@ -32,6 +32,8 @@ enum AppSettings {
         /// true после первого показа alert'а об отсутствии Input Monitoring разрешения.
         /// Сбрасывается при успешной установке event tap.
         static let notchClickAlertShown  = "notchClickAlertShown"
+        /// true после того как пользователь закрыл onboarding окно при первом запуске.
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
         // Tray
         static let trayMaxItems          = "trayMaxItems"
         static let persistTray           = "persistTray"

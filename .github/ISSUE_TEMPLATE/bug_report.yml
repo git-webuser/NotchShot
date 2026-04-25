@@ -1,0 +1,134 @@
+name: Bug Report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS version
+      description: e.g. macOS 15.3.2
+      placeholder: "15."
+    validations:
+      required: true
+
+  - type: input
+    id: mac_model
+    attributes:
+      label: Mac model
+      description: e.g. MacBook Pro 14" M3 (2023)
+      placeholder: MacBook Pro 14"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: notch_display
+    attributes:
+      label: Built-in notch display?
+      description: Does your Mac have a notch at the top of the screen?
+      options:
+        - "Yes"
+        - "No"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: external_monitors
+    attributes:
+      label: External monitors connected?
+      options:
+        - "No"
+        - "Yes, 1"
+        - "Yes, 2 or more"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage_manager
+    attributes:
+      label: Stage Manager enabled?
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dock_position
+    attributes:
+      label: Dock position
+      options:
+        - Bottom
+        - Left
+        - Right
+    validations:
+      required: true
+
+  - type: dropdown
+    id: screen_recording
+    attributes:
+      label: Screen Recording permission granted?
+      description: System Settings → Privacy & Security → Screen Recording
+      options:
+        - "Yes"
+        - "No"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: input_monitoring
+    attributes:
+      label: Input Monitoring permission granted?
+      description: System Settings → Privacy & Security → Input Monitoring
+      options:
+        - "Yes"
+        - "No"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Step-by-step instructions to trigger the bug
+      placeholder: |
+        1. Open NotchShot
+        2. Hover over the notch
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Open NotchShot → Settings → About → Copy Diagnostics, paste here
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console logs (optional)
+      description: Open Console.app, filter by "NotchShot", reproduce the issue, paste relevant lines
+      render: text
+    validations:
+      required: false

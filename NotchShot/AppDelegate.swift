@@ -26,6 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .requestOpenSettings,
             object: nil
         )
+        if !UserDefaults.standard.bool(forKey: AppSettings.Keys.hasCompletedOnboarding) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                FirstLaunchWindowController.shared.show()
+            }
+        }
     }
 
     /// Intercepts the "Settings…" (⌘,) menu item that SwiftUI automatically
