@@ -87,6 +87,9 @@ struct ColorPickerHUDView: View, Equatable {
     let phase: ColorPickerHUDPhase
     let format: HUDColorFormat
     let magnifier: MagnifierData
+    /// When HUD is to the left of the cursor the magnifier moves to the right
+    /// side so it stays close to the cursor (matching the right-side behaviour).
+    let magnifierOnRight: Bool
 
     private let gridSize = 3
     private let cellSize: CGFloat = 14
@@ -105,9 +108,13 @@ struct ColorPickerHUDView: View, Equatable {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            magnifierArea
-            textArea
-                .padding(.trailing, 4)
+            if magnifierOnRight {
+                textArea.padding(.leading, 4)
+                magnifierArea
+            } else {
+                magnifierArea
+                textArea.padding(.trailing, 4)
+            }
         }
         .padding(8)
         .background(HUDBackground())
@@ -274,8 +281,10 @@ final class ColorPickerHUD {
     private var currentPhase: ColorPickerHUDPhase = .hidden
     private var currentMagnifier: MagnifierData = .empty
 
-    // Fixed size — does not change with format or hint switches.
-    // Magnifier 3×3 × 14 pt = 42, padding 8×2 = 16, text area ~182, total width ~240.
+    // Tracks the measured size of the SwiftUI content so positioning uses the
+    // real visible bounds, not a hardcoded guess (content is .fixedSize() so
+    // the panel has a transparent tail when the panel width > content width).
+    private var hudSize = CGSize(width: 240, height: 62)
 
     private let sideGap:     CGFloat = 18
     private let verticalGap: CGFloat = 14
@@ -285,7 +294,7 @@ final class ColorPickerHUD {
     private enum HUDVerticalSide { case below, above }
     private var hudSide:         HUDSide         = .right
     private var hudVerticalSide: HUDVerticalSide = .below
-    private var isFlipping = false
+    private var hudMagnifierOnRight = false
 
     // MARK: - Public API
 
@@ -299,9 +308,9 @@ final class ColorPickerHUD {
         currentPhase  = .idlePlaceholder
         currentMagnifier = .empty
 
-        hudSide         = .right
-        hudVerticalSide = .below
-        isFlipping      = false
+        hudSide             = .right
+        hudVerticalSide     = .below
+        hudMagnifierOnRight = false
 
         ensurePanel()
         guard let panel else { return }
@@ -368,14 +377,18 @@ final class ColorPickerHUD {
 
     private func moveToPosition(_ cursorPos: NSPoint) {
         guard let panel else { return }
-        guard let screen = screenForPoint(cursorPos) ?? NSScreen.main else { return }
+
+        // cursorPos comes from onColorChanged and can be stale (captured at schedule
+        // time, reported after an async pixel read). Use NSEvent.mouseLocation for
+        // everything — thresholds, flip decisions, and frame placement.
+        let live   = NSEvent.mouseLocation
+        guard let screen = screenForPoint(live) ?? NSScreen.main else { return }
 
         let sf   = screen.visibleFrame
-        let size = CGSize(width: 240, height: 62)
+        let size = hudSize      // updated by refreshContent() via intrinsicContentSize
         let safe = sf.insetBy(dx: 8, dy: 8)
 
-        // Horizontal hysteresis: right → left when right overflows; back when fits + margin.
-        let rightMaxX        = cursorPos.x + sideGap + size.width
+        let rightMaxX        = live.x + sideGap + size.width
         let rightOverflows   = rightMaxX > safe.maxX
         let rightComfortable = rightMaxX + hysteresis <= safe.maxX
 
@@ -385,8 +398,7 @@ final class ColorPickerHUD {
         case .left:  desiredSide = rightComfortable ? .right : .left
         }
 
-        // Vertical hysteresis: below → above when below overflows; back when fits + margin.
-        let belowMinY        = cursorPos.y - size.height - verticalGap
+        let belowMinY        = live.y - size.height - verticalGap
         let belowOverflows   = belowMinY < safe.minY
         let belowComfortable = belowMinY - hysteresis >= safe.minY
 
@@ -396,17 +408,20 @@ final class ColorPickerHUD {
         case .above: desiredVertical = belowComfortable ? .below : .above
         }
 
-        let didFlip = desiredSide != hudSide || desiredVertical != hudVerticalSide
-        if didFlip && !isFlipping {
+        let newMagnifierOnRight = (desiredSide == .left)
+        if desiredSide != hudSide || newMagnifierOnRight != hudMagnifierOnRight {
+            hudSide             = desiredSide
+            hudVerticalSide     = desiredVertical
+            hudMagnifierOnRight = newMagnifierOnRight
+            refreshContent()
+        } else {
             hudSide         = desiredSide
             hudVerticalSide = desiredVertical
-            fadeThroughFlip(panel)
         }
 
-        // Frame is set immediately every call — no animation lag, no cursor overlap.
         panel.setFrame(
             frameOnSide(hudSide, vertical: hudVerticalSide,
-                        cursor: cursorPos, safe: safe, size: size),
+                        cursor: live, safe: safe, size: size),
             display: false
         )
     }
@@ -422,28 +437,14 @@ final class ColorPickerHUD {
         return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
-    private func fadeThroughFlip(_ panel: NSPanel) {
-        isFlipping = true
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.05
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().alphaValue = 0
-        } completionHandler: { [weak self, weak panel] in
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.08
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel?.animator().alphaValue = 1
-            } completionHandler: { [weak self] in
-                self?.isFlipping = false
-            }
-        }
-    }
 
     // MARK: - Panel management
 
     private func ensurePanel() {
         guard panel == nil else { return }
-        let frame = NSRect(origin: .zero, size: CGSize(width: 240, height: 62))
+        // Initial size matches hudSize default; refreshContent() will resize to
+        // the actual SwiftUI intrinsicContentSize on the first call.
+        let frame = NSRect(origin: .zero, size: hudSize)
         panel = makePanel(frame: frame)
     }
 
@@ -456,15 +457,18 @@ final class ColorPickerHUD {
         let view = ColorPickerHUDView(
             phase: currentPhase,
             format: currentFormat,
-            magnifier: currentMagnifier
+            magnifier: currentMagnifier,
+            magnifierOnRight: hudMagnifierOnRight
         )
-        if let hosting = blur.subviews.compactMap({ $0 as? NSHostingView<ColorPickerHUDView> }).first {
-            hosting.rootView = view
+        let hosting: NSHostingView<ColorPickerHUDView>
+        if let existing = blur.subviews.compactMap({ $0 as? NSHostingView<ColorPickerHUDView> }).first {
+            existing.rootView = view
+            hosting = existing
         } else {
-            let hosting = NSHostingView(rootView: view)
+            hosting = NSHostingView(rootView: view)
             hosting.translatesAutoresizingMaskIntoConstraints = false
             hosting.wantsLayer = true
-            hosting.layer?.backgroundColor = .clear
+            hosting.layer?.backgroundColor = NSColor.clear.cgColor
             blur.addSubview(hosting)
             NSLayoutConstraint.activate([
                 hosting.topAnchor.constraint(equalTo: blur.topAnchor),
@@ -472,6 +476,22 @@ final class ColorPickerHUD {
                 hosting.leadingAnchor.constraint(equalTo: blur.leadingAnchor),
                 hosting.trailingAnchor.constraint(equalTo: blur.trailingAnchor),
             ])
+        }
+
+        // Sync panel size to the real SwiftUI content size so there is no
+        // transparent tail on either side (content uses .fixedSize()).
+        // layout() forces a synchronous AppKit + SwiftUI measure pass so
+        // intrinsicContentSize is fresh before we read it.
+        hosting.layout()
+        let ic = hosting.intrinsicContentSize
+        if ic.width  > 0, ic.width  != NSView.noIntrinsicMetric,
+           ic.height > 0, ic.height != NSView.noIntrinsicMetric {
+            let newSize = CGSize(width: ceil(ic.width), height: ceil(ic.height))
+            if abs(newSize.width  - hudSize.width)  > 0.5 ||
+               abs(newSize.height - hudSize.height) > 0.5 {
+                hudSize = newSize
+                panel.setContentSize(newSize)
+            }
         }
     }
 
