@@ -12,6 +12,7 @@ struct NotchTrayView: View {
     let onTogglePin: () -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
+    @State private var hoveredScreenshotID: UUID?
 
     private func handleBack() {
         onBack()  // controller drives the content fade-out
@@ -134,6 +135,15 @@ struct NotchTrayView: View {
                             badgeBleed: badgeBleed,
                             labelOffset: labelOffset,
                             cornerRadius: metrics.buttonRadius,
+                            isHovered: hoveredScreenshotID == shot.id,
+                            setHovered: { hovering in
+                                if hovering {
+                                    hoveredScreenshotID = shot.id
+                                } else if hoveredScreenshotID == shot.id {
+                                    hoveredScreenshotID = nil
+                                }
+                            },
+                            onOpen: { onBack() },
                             onRemove: {
                                 trayModel.remove(id: shot.id)
                                 NSWorkspace.shared.recycle([shot.url])
@@ -325,10 +335,12 @@ private struct TrayScreenshotCell: View {
     let badgeBleed: CGFloat
     let labelOffset: CGFloat
     let cornerRadius: CGFloat
+    let isHovered: Bool
+    let setHovered: (Bool) -> Void
+    let onOpen: () -> Void
     let onRemove: () -> Void
 
     @State private var loader = ThumbnailLoader()
-    @State private var isHovered    = false
     @State private var isPressed    = false
     @State private var isRemoving   = false
     @State private var isBadgeActive = false
@@ -404,8 +416,10 @@ private struct TrayScreenshotCell: View {
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
-                isHovered: $isHovered,
+                isHovered: isHovered,
+                onHoverChange: setHovered,
                 onTap: {
+                    onOpen()
                     let cfg = NSWorkspace.OpenConfiguration()
                     cfg.activates = true
                     NSWorkspace.shared.open(shot.url, configuration: cfg)
@@ -425,6 +439,7 @@ private struct TrayScreenshotCell: View {
         }
         .contextMenu {
             Button("Open") {
+                onOpen()
                 let cfg = NSWorkspace.OpenConfiguration()
                 cfg.activates = true
                 NSWorkspace.shared.open(shot.url, configuration: cfg)
@@ -606,18 +621,21 @@ private struct TrayDragShim: NSViewRepresentable {
     let cellSize: CGSize
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
-    @Binding var isHovered: Bool
+    let isHovered: Bool
+    let onHoverChange: (Bool) -> Void
     let onTap: () -> Void
 
     func makeNSView(context: Context) -> TrayDragShimView {
         TrayDragShimView(isPressed: $isPressed, isDragging: $isDragging,
-                         isHovered: $isHovered, onTap: onTap)
+                         isHovered: isHovered, onHoverChange: onHoverChange, onTap: onTap)
     }
 
     func updateNSView(_ nsView: TrayDragShimView, context: Context) {
         nsView.url = url
         nsView.dragImage = dragImage
         nsView.cellSize = cellSize
+        nsView.currentIsHovered = isHovered
+        nsView.onHoverChange = onHoverChange
     }
 }
 
@@ -630,18 +648,18 @@ final class TrayDragShimView: NSView, NSDraggingSource {
 
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
-    @Binding var isHovered: Bool
+    var currentIsHovered: Bool
+    var onHoverChange: (Bool) -> Void
     let onTap: () -> Void
 
     private var mouseDownPoint: NSPoint?
-    /// URL whose security scope we currently hold for an active drag session.
-
 
     init(isPressed: Binding<Bool>, isDragging: Binding<Bool>,
-         isHovered: Binding<Bool>, onTap: @escaping () -> Void) {
+         isHovered: Bool, onHoverChange: @escaping (Bool) -> Void, onTap: @escaping () -> Void) {
         self._isPressed = isPressed
         self._isDragging = isDragging
-        self._isHovered = isHovered
+        self.currentIsHovered = isHovered
+        self.onHoverChange = onHoverChange
         self.onTap = onTap
         super.init(frame: .zero)
     }
@@ -666,7 +684,7 @@ final class TrayDragShimView: NSView, NSDraggingSource {
             }
         } else {
             if let m = eventMonitor { NSEvent.removeMonitor(m); eventMonitor = nil }
-            DispatchQueue.main.async { self.isHovered = false }
+            DispatchQueue.main.async { self.onHoverChange(false) }
         }
     }
 
@@ -688,8 +706,8 @@ final class TrayDragShimView: NSView, NSDraggingSource {
         )
         let hovering = hoverRect.contains(pt)
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.isHovered != hovering else { return }
-            self.isHovered = hovering
+            guard let self, self.currentIsHovered != hovering else { return }
+            self.onHoverChange(hovering)
         }
     }
 
