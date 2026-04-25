@@ -9,6 +9,7 @@ struct NotchTrayView: View {
     var trayModel: NotchTrayModel
     let isPinned: Bool
     let onBack: () -> Void
+    let onHidePanel: () -> Void
     let onTogglePin: () -> Void
 
     @AppStorage(AppSettings.Keys.defaultColorFormat) private var scheme: ColorSchemeType = .hex
@@ -143,7 +144,7 @@ struct NotchTrayView: View {
                                     hoveredScreenshotID = nil
                                 }
                             },
-                            onOpen: { onBack() },
+                            onOpen: { onHidePanel() },
                             onRemove: {
                                 trayModel.remove(id: shot.id)
                                 NSWorkspace.shared.recycle([shot.url])
@@ -419,10 +420,10 @@ private struct TrayScreenshotCell: View {
                 isHovered: isHovered,
                 onHoverChange: setHovered,
                 onTap: {
-                    onOpen()
                     let cfg = NSWorkspace.OpenConfiguration()
                     cfg.activates = true
                     NSWorkspace.shared.open(shot.url, configuration: cfg)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
                 }
             )
         }
@@ -439,10 +440,10 @@ private struct TrayScreenshotCell: View {
         }
         .contextMenu {
             Button("Open") {
-                onOpen()
                 let cfg = NSWorkspace.OpenConfiguration()
                 cfg.activates = true
                 NSWorkspace.shared.open(shot.url, configuration: cfg)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { onOpen() }
             }
             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([shot.url]) }
             Button("Copy") {

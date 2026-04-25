@@ -62,6 +62,7 @@ private struct NotchPanelRootView: View {
     let onPickColor: () -> Void
     let onModeDelayChanged: () -> Void
     let onBack: () -> Void
+    let onHidePanel: () -> Void
     let onTogglePin: () -> Void
     let onStopCountdown: () -> Void
     let onCaptureNow: () -> Void
@@ -117,6 +118,7 @@ private struct NotchPanelRootView: View {
                 trayModel: trayModel,
                 isPinned: rootState.isTrayPinned,
                 onBack: onBack,
+                onHidePanel: onHidePanel,
                 onTogglePin: onTogglePin
             )
             .opacity(rootState.trayContentVisible)
@@ -724,6 +726,7 @@ final class NotchPanelController: NSObject {
             onPickColor: { [weak self] in self?.pickColor() },
             onModeDelayChanged: { [weak self] in self?.updateWidthForNoNotchIfNeeded() },
             onBack: { [weak self] in self?.switchToMain() },
+            onHidePanel: { [weak self] in self?.hideAnimated() },
             onTogglePin: { [weak self] in self?.rootState.isTrayPinned.toggle() },
             onStopCountdown: { [weak self] in self?.stopCountdown() },
             onCaptureNow: { [weak self] in self?.captureNowFromCountdown() }
