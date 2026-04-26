@@ -35,9 +35,9 @@ struct AboutSettingsView: View {
 
             Section("Links") {
                 Link("View on GitHub",
-                     destination: URL(string: "https://github.com/hex000/NotchShot")!)
+                     destination: URL(string: "https://github.com/git-webuser/NotchShot")!)
                 Link("Report an Issue",
-                     destination: URL(string: "https://github.com/hex000/NotchShot/issues")!)
+                     destination: URL(string: "https://github.com/git-webuser/NotchShot/issues")!)
             }
 
             Section {
