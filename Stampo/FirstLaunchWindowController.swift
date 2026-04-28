@@ -63,7 +63,12 @@ struct FirstLaunchView: View {
                 title: "Screen Recording",
                 description: "Required for screenshots and color sampling.",
                 granted: screenRecordingGranted,
-                settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+                settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+                preflight: {
+                    // Triggers TCC registration so Stampo appears in
+                    // System Settings → Screen & System Audio Recording.
+                    _ = CGRequestScreenCaptureAccess()
+                }
             )
             .padding(.bottom, 8)
 
@@ -96,6 +101,13 @@ struct FirstLaunchView: View {
         }
         .padding(24)
         .frame(width: 420)
+        .onAppear {
+            // Force TCC to register Stampo in the Screen Recording list,
+            // so the user can find and toggle it in System Settings.
+            if !CGPreflightScreenCaptureAccess() {
+                _ = CGRequestScreenCaptureAccess()
+            }
+        }
         .onReceive(timer) { _ in
             screenRecordingGranted = CGPreflightScreenCaptureAccess()
             inputMonitoringGranted = NotchHoverController.isEventTapInstalled
@@ -142,7 +154,8 @@ struct FirstLaunchView: View {
         title: LocalizedStringKey,
         description: LocalizedStringKey,
         granted: Bool,
-        settingsURL: String
+        settingsURL: String,
+        preflight: (() -> Void)? = nil
     ) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
@@ -159,6 +172,7 @@ struct FirstLaunchView: View {
                             .font(.caption)
                     } else {
                         Button("Open System Settings") {
+                            preflight?()
                             if let url = URL(string: settingsURL) {
                                 NSWorkspace.shared.open(url)
                             }

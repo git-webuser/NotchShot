@@ -17,6 +17,10 @@ DerivedData/
 .build/
 .swiftpm/
 
+# Local build output / signed app + DMG
+build/
+.derivedData/
+
 # CocoaPods
 Pods/
 

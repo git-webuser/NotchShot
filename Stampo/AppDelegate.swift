@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let panel = NotchPanelController()
@@ -29,6 +30,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !UserDefaults.standard.bool(forKey: AppSettings.Keys.hasCompletedOnboarding) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 FirstLaunchWindowController.shared.show()
+            }
+        } else if !CGPreflightScreenCaptureAccess() {
+            // Onboarding was already completed but Screen Recording is not
+            // granted (e.g. TCC was reset). Trigger a request so Stampo
+            // is registered in System Settings → Screen Recording.
+            DispatchQueue.global(qos: .utility).async {
+                _ = CGRequestScreenCaptureAccess()
             }
         }
     }
