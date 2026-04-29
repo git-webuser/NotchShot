@@ -50,9 +50,19 @@ enum PanelState {
     case tray
     case hiding
     case countdown
+    /// Panel hidden, an external selection overlay (rect or window) is up.
+    /// The overlay session is part of the panel lifecycle so the hover
+    /// controller knows to suppress auto-close while it's active.
+    case preSelection(OverlayKind)
+    /// WindowServer / Spaces binding is stale (sleep, wake, display
+    /// reconfiguration, or a Space switch while hidden). The next show
+    /// must rebind, and the hover controller cannot trust panel.isVisible.
+    case stale(reason: StaleReason)
 }
 
 enum TransitionTarget { case tray, main }
+enum OverlayKind { case selection, window }
+enum StaleReason { case sleep, spaceChange, displayChange }
 
 extension PanelState {
     /// True when the panel is at rest and visible, or in transit between
@@ -60,9 +70,16 @@ extension PanelState {
     /// an outside click should auto-close the panel.
     var allowsAutoHide: Bool {
         switch self {
-        case .transitioning, .countdown: return false
-        case .hidden, .showing, .main, .tray, .hiding: return true
+        case .transitioning, .countdown, .preSelection: return false
+        case .hidden, .showing, .main, .tray, .hiding, .stale: return true
         }
+    }
+
+    /// True while a Space/sleep/display rebind is pending. Replaces the
+    /// old `needsSpaceRebind` flag.
+    var isStale: Bool {
+        if case .stale = self { return true }
+        return false
     }
 }
 
@@ -191,13 +208,17 @@ final class NotchPanelController: NSObject {
     /// True после sleep/wake/display-change/Space-switch, пока панель не была
     /// показана заново с принудительной перепривязкой к активному Space.
     /// Читается из NotchHoverController чтобы не уходить в «закрыть невидимую панель».
-    private(set) var needsSpaceRebind = false
+    /// Computed from `state == .stale(_)` after PR 3 refactor.
+    var needsSpaceRebind: Bool { state.isStale }
 
     /// Монотонно возрастающий счётчик анимационных фаз. Каждая новая анимация
     /// фиксирует текущее значение; устаревшие completion handler'ы сравнивают
     /// с ним и завершаются без изменения состояния. Это предотвращает «мёртвые
     /// состояния» панели при быстрых открытие→закрытие или sleep прямо
     /// во время анимации.
+    /// Сохраняется как defensive guard: `PanelState` обеспечивает основные
+    /// инварианты, но stale completion'ы NSAnimation могут выстрелить уже
+    /// после перехода в новое состояние; generation matching ловит этот случай.
     private var animationGeneration: Int = 0
     @discardableResult
     private func bumpGeneration() -> Int {
@@ -226,7 +247,14 @@ final class NotchPanelController: NSObject {
 
     let selectionOverlay = SelectionOverlay()
     let windowPickerOverlay = WindowPickerOverlay()
-    var preSelectionInFlight: Bool = false
+
+    /// True ⇔ `state` is `.preSelection(_)`. Kept as a helper so call sites
+    /// don't need to repeat the pattern match. Replaces the
+    /// preSelectionInFlight flag from PR 2.
+    var isInPreSelection: Bool {
+        if case .preSelection = state { return true }
+        return false
+    }
 
     var metrics = NotchMetrics.fallback() {
         didSet { rootState.metrics = metrics }
@@ -302,21 +330,24 @@ final class NotchPanelController: NSObject {
         // сохранить у старого NSPanel устаревшую Space-привязку, которую AppKit
         // не исправляет самостоятельно. Самый надёжный способ — пересоздать
         // панель при следующем показе вместо того, чтобы «лечить» старую.
-        let onEnvChange: (Notification) -> Void = { [weak self] _ in
-            self?.invalidatePanelAfterEnvironmentChange()
+        let onSleepWake: (Notification) -> Void = { [weak self] _ in
+            self?.invalidatePanelAfterEnvironmentChange(reason: .sleep)
+        }
+        let onDisplayChange: (Notification) -> Void = { [weak self] _ in
+            self?.invalidatePanelAfterEnvironmentChange(reason: .displayChange)
         }
         let t4 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidSleepNotification,
-            object: nil, queue: .main, using: onEnvChange)
+            object: nil, queue: .main, using: onSleepWake)
         let t5 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidWakeNotification,
-            object: nil, queue: .main, using: onEnvChange)
+            object: nil, queue: .main, using: onSleepWake)
         let t6 = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
-            object: nil, queue: .main, using: onEnvChange)
+            object: nil, queue: .main, using: onSleepWake)
         let t7 = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil, queue: .main, using: onEnvChange)
+            object: nil, queue: .main, using: onDisplayChange)
 
         notificationObservers = [t1, t2, t3, t4, t5, t6, t7]
     }
@@ -341,8 +372,9 @@ final class NotchPanelController: NSObject {
     /// 1. `.moveToActiveSpace` — AppKit перетягивает окно в активный Space при orderFront.
     /// 2. `orderFrontRegardless()` — фактическая привязка к Space происходит здесь.
     /// 3. `.canJoinAllSpaces` — после привязки к текущему Space расширяем присутствие
-    ///    на все рабочие столы. `.stationary` убран: он предназначен для обоев/иконок
-    ///    рабочего стола и после долгой работы вызывает залипание на одном Space.
+    ///    на все рабочие столы. `.stationary` восстановлен в `f02100f`, чтобы
+    ///    убрать «дыру» при анимации Mission Control; залипание Space защищено
+    ///    sleep/wake-инвалидацией и rebind-последовательностью выше.
     private func orderFrontOnActiveSpace(_ panel: NSPanel) {
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.orderFrontRegardless()
@@ -352,10 +384,9 @@ final class NotchPanelController: NSObject {
     /// Помечает Space-привязку панели устаревшей и аккуратно прячет её.
     /// Используется при переключении Space пока панель скрыта.
     private func markPanelSpaceBindingStale() {
-        needsSpaceRebind = true
         panel?.orderOut(nil)
         // Сброс состояния, чтобы следующий show начался из чистого Main.
-        state = .hidden
+        state = .stale(reason: .spaceChange)
         interactionState.isEnabled = true
         route = .main
         rootState.progress = 0.0
@@ -365,18 +396,16 @@ final class NotchPanelController: NSObject {
     /// Полностью уничтожает NSPanel после sleep/wake/display-change.
     /// Пересоздание при следующем show — единственный способ гарантированно
     /// избавиться от устаревшей WindowServer / Spaces привязки.
-    private func invalidatePanelAfterEnvironmentChange() {
-        needsSpaceRebind = true
+    private func invalidatePanelAfterEnvironmentChange(reason: StaleReason = .sleep) {
         bumpGeneration()
 
         // Отменяем любые активные overlay-сессии: если sleep/wake случился во время
-        // выбора области, окна или цвета, preSelectionInFlight / colorPicker.isInFlight
+        // выбора области, окна или цвета, preSelection / colorPicker.isInFlight
         // зависнут и через suppressesGlobalAutoHide сделают панель неуправляемой.
         selectionOverlay.cancel()
         windowPickerOverlay.cancel()
         colorPicker.cancel()
         screenshot.cancelCurrentCapture()
-        preSelectionInFlight = false
 
         activeCountdown?.timer?.invalidate()
         activeCountdown = nil
@@ -384,7 +413,7 @@ final class NotchPanelController: NSObject {
         panel?.close()
         panel = nil
         removeEscMonitor()
-        state = .hidden
+        state = .stale(reason: reason)
         interactionState.isEnabled = true
         route = .main
         rootState.progress = 0.0
@@ -401,7 +430,6 @@ final class NotchPanelController: NSObject {
         !state.allowsAutoHide
             || isMenuTracking
             || colorPicker.isInFlight
-            || preSelectionInFlight
             || rootState.isTrayPinned
     }
 
@@ -423,11 +451,11 @@ final class NotchPanelController: NSObject {
         currentScreen = screen
         updateScreenMetrics(for: screen)
         if mode == .selection {
-            guard !preSelectionInFlight else { return }
-            preSelectionInFlight = true
+            guard !isInPreSelection else { return }
+            state = .preSelection(.selection)
             selectionOverlay.onSelected = { [weak self] rect in
                 guard let self else { return }
-                self.preSelectionInFlight = false
+                self.state = .hidden
                 // The overlay panel was just orderOut(nil)'d, but WindowServer
                 // still has it in the framebuffer for a frame or two. Without a
                 // small delay screencapture(1) fires before the dim/cursor
@@ -439,7 +467,7 @@ final class NotchPanelController: NSObject {
                 }
             }
             selectionOverlay.onCancelled = { [weak self] in
-                self?.preSelectionInFlight = false
+                self?.state = .hidden
             }
             selectionOverlay.start(on: screen)
         } else {
@@ -471,7 +499,8 @@ final class NotchPanelController: NSObject {
         // к активному Space. Если panel==nil — create() уже сделал свежий объект.
         if forceRebind {
             panel.orderOut(nil)
-            needsSpaceRebind = false
+            // state.isStale is cleared automatically when we transition to
+            // .showing below — no separate flag write needed.
         }
 
         state = .showing
@@ -746,17 +775,19 @@ final class NotchPanelController: NSObject {
                 if delay == .off {
                     let screen = self.currentScreen ?? NSScreen.main
                     if mode == .selection {
-                        guard !self.preSelectionInFlight else { return }
-                        self.preSelectionInFlight = true
+                        guard !self.isInPreSelection else { return }
                         self.hideAnimated { [weak self] in
                             guard let self else { return }
+                            // hideAnimated set state to .hidden; promote to
+                            // .preSelection now that the overlay is taking over.
+                            self.state = .preSelection(.selection)
                             self.selectionOverlay.onSelected = { [weak self] rect in
                                 guard let self else { return }
-                                self.preSelectionInFlight = false
+                                self.state = .hidden
                                 self.screenshot.captureRect(rect, preferredScreen: screen)
                             }
                             self.selectionOverlay.onCancelled = { [weak self] in
-                                self?.preSelectionInFlight = false
+                                self?.state = .hidden
                             }
                             self.selectionOverlay.start(on: screen ?? NSScreen.main ?? NSScreen.screens[0])
                         }

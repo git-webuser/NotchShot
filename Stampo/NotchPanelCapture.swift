@@ -48,36 +48,38 @@ extension NotchPanelController {
 
     /// Selection/Window mode: hide panel, show pre-selection overlay, then show panel with countdown.
     func launchPreSelection(mode: CaptureMode, seconds: Int) {
-        guard !preSelectionInFlight else { return }
+        guard !isInPreSelection else { return }
         // Fail closed if there's no screen to present the overlay on (headless
         // Mac or mid-reconfiguration). Previously this forced `screens[0]` and
         // crashed on empty screens.
         guard let screen = currentScreen ?? NSScreen.main ?? NSScreen.screens.first else {
             return
         }
-        preSelectionInFlight = true
 
         hideAnimated { [weak self] in
             guard let self else { return }
+            // hideAnimated set state to .hidden; promote to .preSelection now
+            // that the overlay is taking over the visible UI.
+            let kind: OverlayKind = (mode == .selection) ? .selection : .window
+            self.state = .preSelection(kind)
             if mode == .selection {
                 self.selectionOverlay.onSelected = { [weak self] rect in
                     guard let self else { return }
-                    self.preSelectionInFlight = false
+                    // beginCountdownAfterPreSelection sets state = .countdown.
                     self.beginCountdownAfterPreSelection(target: .rect(rect), seconds: seconds, screen: screen)
                 }
                 self.selectionOverlay.onCancelled = { [weak self] in
-                    self?.preSelectionInFlight = false
+                    self?.state = .hidden
                 }
                 self.selectionOverlay.start(on: screen)
             } else {
                 // .window
                 self.windowPickerOverlay.onSelected = { [weak self] windowID in
                     guard let self else { return }
-                    self.preSelectionInFlight = false
                     self.beginCountdownAfterPreSelection(target: .windowID(windowID), seconds: seconds, screen: screen)
                 }
                 self.windowPickerOverlay.onCancelled = { [weak self] in
-                    self?.preSelectionInFlight = false
+                    self?.state = .hidden
                 }
                 self.windowPickerOverlay.start(on: screen)
             }
