@@ -38,6 +38,7 @@ extension NotchPanelController {
             timer: nil
         )
         syncCountdownToRootState()
+        state = .countdown
         route = .cdwn
         withAnimation(.easeOut(duration: 0.16)) {
             rootState.countdownVisible = 1.0
@@ -97,6 +98,9 @@ extension NotchPanelController {
         rootState.countdownVisible = 1.0
         route = .cdwn
         showAnimated(on: screen)
+        // showAnimated's completion only finalises to .main when state is still
+        // .showing, so this assignment survives the animation completing.
+        state = .countdown
         startCountdownTimer()
     }
 
@@ -127,6 +131,7 @@ extension NotchPanelController {
     func stopCountdown() {
         cancelCountdownTimer()
         activeCountdown = nil
+        state = .main
         route = .main
         withAnimation(.easeOut(duration: 0.16)) {
             rootState.countdownVisible = 0.0
