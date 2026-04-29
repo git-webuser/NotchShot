@@ -419,7 +419,6 @@ private struct TrayScreenshotCell: View {
                 cellSize: CGSize(width: width, height: height),
                 isPressed: $isPressed,
                 isDragging: $isDragging,
-                isHovered: isHovered,
                 onHoverChange: setHovered,
                 onTap: {
                     let cfg = NSWorkspace.OpenConfiguration()
@@ -624,20 +623,18 @@ private struct TrayDragShim: NSViewRepresentable {
     let cellSize: CGSize
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
-    let isHovered: Bool
     let onHoverChange: (Bool) -> Void
     let onTap: () -> Void
 
     func makeNSView(context: Context) -> TrayDragShimView {
         TrayDragShimView(isPressed: $isPressed, isDragging: $isDragging,
-                         isHovered: isHovered, onHoverChange: onHoverChange, onTap: onTap)
+                         onHoverChange: onHoverChange, onTap: onTap)
     }
 
     func updateNSView(_ nsView: TrayDragShimView, context: Context) {
         nsView.url = url
         nsView.dragImage = dragImage
         nsView.cellSize = cellSize
-        nsView.currentIsHovered = isHovered
         nsView.onHoverChange = onHoverChange
     }
 }
@@ -651,17 +648,20 @@ final class TrayDragShimView: NSView, NSDraggingSource {
 
     @Binding var isPressed: Bool
     @Binding var isDragging: Bool
-    var currentIsHovered: Bool
+    /// Tracks whether the cursor is inside *this* cell's hover zone (incl. bleed),
+    /// independent of which cell the parent has currently selected. Prevents
+    /// neighbour cells with overlapping bleed zones from oscillating
+    /// `hoveredScreenshotID` on every mouse-move event.
+    var localIsInHoverZone: Bool = false
     var onHoverChange: (Bool) -> Void
     let onTap: () -> Void
 
     private var mouseDownPoint: NSPoint?
 
     init(isPressed: Binding<Bool>, isDragging: Binding<Bool>,
-         isHovered: Bool, onHoverChange: @escaping (Bool) -> Void, onTap: @escaping () -> Void) {
+         onHoverChange: @escaping (Bool) -> Void, onTap: @escaping () -> Void) {
         self._isPressed = isPressed
         self._isDragging = isDragging
-        self.currentIsHovered = isHovered
         self.onHoverChange = onHoverChange
         self.onTap = onTap
         super.init(frame: .zero)
@@ -687,6 +687,7 @@ final class TrayDragShimView: NSView, NSDraggingSource {
             }
         } else {
             if let m = eventMonitor { NSEvent.removeMonitor(m); eventMonitor = nil }
+            localIsInHoverZone = false
             DispatchQueue.main.async { self.onHoverChange(false) }
         }
     }
@@ -709,7 +710,8 @@ final class TrayDragShimView: NSView, NSDraggingSource {
         )
         let hovering = hoverRect.contains(pt)
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.currentIsHovered != hovering else { return }
+            guard let self, self.localIsInHoverZone != hovering else { return }
+            self.localIsInHoverZone = hovering
             self.onHoverChange(hovering)
         }
     }
