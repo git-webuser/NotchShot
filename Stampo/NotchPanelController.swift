@@ -391,7 +391,15 @@ final class NotchPanelController: NSObject {
             selectionOverlay.onSelected = { [weak self] rect in
                 guard let self else { return }
                 self.preSelectionInFlight = false
-                self.screenshot.captureRect(rect, preferredScreen: screen)
+                // The overlay panel was just orderOut(nil)'d, but WindowServer
+                // still has it in the framebuffer for a frame or two. Without a
+                // small delay screencapture(1) fires before the dim/cursor
+                // overlay is gone and the resulting image includes them.
+                // Panel-mode area capture doesn't hit this because the panel's
+                // hideAnimated completion provides a much longer buffer.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.screenshot.captureRect(rect, preferredScreen: screen)
+                }
             }
             selectionOverlay.onCancelled = { [weak self] in
                 self?.preSelectionInFlight = false
