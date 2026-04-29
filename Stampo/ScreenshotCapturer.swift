@@ -64,7 +64,18 @@ final class ScreenshotCapturer {
         }
 
         args.append(tmpURL.path)
-        return run(args) && fm.fileExists(atPath: tmpURL.path) ? tmpURL : nil
+        let interactive = args.contains("-i")
+        let didRun = run(args)
+        if didRun, fm.fileExists(atPath: tmpURL.path) {
+            return tmpURL
+        }
+        // Interactive picker (-i) exits with status 0 when the user cancels
+        // via Esc or right-click — no file is written. Treat that as a
+        // cancel rather than a failure so we don't surface an error alert.
+        if didRun, interactive {
+            processLock.withLock { _lastCaptureWasCancelled = true }
+        }
+        return nil
     }
 
     func captureRectToTemp(_ rect: CGRect) -> URL? {
