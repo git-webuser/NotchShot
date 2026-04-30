@@ -499,17 +499,30 @@ final class ColorPickerHUD {
         hudSize = newSize
 
         if animatedResize {
-            // Recompute the panel frame using the new size and the same
-            // side/vertical decisions, then animate the panel to it so the
-            // blur layer and SwiftUI content grow together.
-            let cursor = NSEvent.mouseLocation
-            let screen = screenForPoint(cursor) ?? NSScreen.main
-            let safe = (screen?.visibleFrame ?? .zero).insetBy(dx: 8, dy: 8)
-            let target = frameOnSide(hudSide, vertical: hudVerticalSide,
-                                     cursor: cursor, safe: safe, size: newSize)
+            // Anchor the panel to the cursor-facing edges so resizing only
+            // grows outward from the side away from the cursor. Avoids the
+            // visual jump that frameOnSide(cursor: NSEvent.mouseLocation)
+            // would introduce if the mouse drifted between live preview
+            // and the success click.
+            //
+            // - hudSide .right  ⇒ left edge stays put (panel grows right)
+            // - hudSide .left   ⇒ right edge stays put (panel grows left)
+            // - hudVerticalSide .below ⇒ top edge stays put (NSWindow uses
+            //                            bottom-left origin, so y shifts)
+            // - hudVerticalSide .above ⇒ bottom edge stays put
+            let oldFrame = panel.frame
+            let newX: CGFloat = (hudSide == .left)
+                ? oldFrame.maxX - newSize.width
+                : oldFrame.minX
+            let newY: CGFloat = (hudVerticalSide == .below)
+                ? oldFrame.maxY - newSize.height
+                : oldFrame.minY
+            let target = NSRect(x: newX, y: newY,
+                                width: newSize.width, height: newSize.height)
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.22
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                // Match the SwiftUI body's .spring(response: 0.3, ...) timing.
+                ctx.duration = 0.30
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 panel.animator().setFrame(target, display: true)
             }
         } else {
