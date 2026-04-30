@@ -346,7 +346,11 @@ final class ColorPickerHUD {
     func showSuccess(color: NSColor, on screen: NSScreen?, autoHideAfter delay: TimeInterval) {
 
         currentPhase = .success(color)
-        refreshContent()
+        // Animate the resize so the blur layer and panel frame grow in sync
+        // with the SwiftUI success-row transition (~spring 0.3s). Without
+        // animation NSVisualEffectView flashed for one frame as the layer
+        // jumped from the old hudSize straight to the new one.
+        refreshContent(animatedResize: true)
 
         let work = DispatchWorkItem { [weak self] in self?.hide(animated: true) }
         hideWorkItem = work
@@ -448,7 +452,7 @@ final class ColorPickerHUD {
         panel = makePanel(frame: frame)
     }
 
-    private func refreshContent() {
+    private func refreshContent(animatedResize: Bool = false) {
         guard let panel else { return }
         guard let rootView = panel.contentView,
               let blur = rootView.subviews.compactMap({ $0 as? NSVisualEffectView }).first
@@ -484,14 +488,32 @@ final class ColorPickerHUD {
         // intrinsicContentSize is fresh before we read it.
         hosting.layout()
         let ic = hosting.intrinsicContentSize
-        if ic.width  > 0, ic.width  != NSView.noIntrinsicMetric,
-           ic.height > 0, ic.height != NSView.noIntrinsicMetric {
-            let newSize = CGSize(width: ceil(ic.width), height: ceil(ic.height))
-            if abs(newSize.width  - hudSize.width)  > 0.5 ||
-               abs(newSize.height - hudSize.height) > 0.5 {
-                hudSize = newSize
-                panel.setContentSize(newSize)
+        guard ic.width  > 0, ic.width  != NSView.noIntrinsicMetric,
+              ic.height > 0, ic.height != NSView.noIntrinsicMetric
+        else { return }
+
+        let newSize = CGSize(width: ceil(ic.width), height: ceil(ic.height))
+        guard abs(newSize.width  - hudSize.width)  > 0.5 ||
+              abs(newSize.height - hudSize.height) > 0.5
+        else { return }
+        hudSize = newSize
+
+        if animatedResize {
+            // Recompute the panel frame using the new size and the same
+            // side/vertical decisions, then animate the panel to it so the
+            // blur layer and SwiftUI content grow together.
+            let cursor = NSEvent.mouseLocation
+            let screen = screenForPoint(cursor) ?? NSScreen.main
+            let safe = (screen?.visibleFrame ?? .zero).insetBy(dx: 8, dy: 8)
+            let target = frameOnSide(hudSide, vertical: hudVerticalSide,
+                                     cursor: cursor, safe: safe, size: newSize)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.22
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(target, display: true)
             }
+        } else {
+            panel.setContentSize(newSize)
         }
     }
 
