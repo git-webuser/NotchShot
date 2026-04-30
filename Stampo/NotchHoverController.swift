@@ -192,7 +192,7 @@ final class NotchHoverController: NSObject {
         guard handlerStatus == noErr else { return }
 
         let mods = UInt32(controlKey | optionKey | cmdKey)
-        let sig = fourCharCode("NTSH")
+        let sig = fourCharCode("STMP")
 
         // id=1  Ctrl+Opt+Cmd+N  — toggle panel
         if AppSettings.hotkeyPanelEnabled {

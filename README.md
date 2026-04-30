@@ -1,6 +1,6 @@
 # Stampo
 
-Screenshot and color picker for MacBooks with a notch. The panel lives at the notch — no menu bar icon, no Dock icon.
+Screenshot and color picker for MacBooks with a notch. The panel lives at the notch — no Dock icon, minimal menu bar presence.
 
 ![Stampo panel](Docs/preview.png)
 
@@ -12,7 +12,7 @@ Stampo replaces the usual screenshot workflow with a panel that appears when you
 
 ## Requirements
 
-- macOS 15 or later
+- macOS 15.7 or later
 - MacBook with a built-in notch display (MacBook Pro 14" or 16", MacBook Air M2 or later)
 
 > **Note:** Stampo is designed for notch displays. It will launch on non-notch Macs but the panel positioning may not be ideal.
@@ -43,7 +43,7 @@ To grant permissions: **System Settings → Privacy & Security → Screen Record
 - **Hover** near the top center of your screen (at the notch) to open the panel.
 - **Click a capture mode** to start a screenshot or color pick.
 - **Click the tray icon** (stack icon) to browse recent captures.
-- All screenshots are saved to your chosen folder (default: `~/Pictures`).
+- All screenshots are saved to your chosen folder (default: `~/Downloads`).
 
 ## Hotkeys
 
@@ -59,7 +59,7 @@ Hotkeys can be enabled or disabled individually in **Settings → Hotkeys**.
 
 ## Where screenshots are saved
 
-By default, screenshots are saved to **~/Pictures**. You can change the save folder in **Settings → Capture → Save Location**.
+By default, screenshots are saved to **~/Downloads**. You can change the save folder in **Settings → Capture → Save Location**.
 
 File names follow the format: `Stampo YYYY-MM-DD at HH.MM.SS.png` (configurable in Settings).
 
@@ -105,4 +105,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-*Stampo 0.1.0-beta.1 — Public beta for macOS 15+*
+*Stampo 0.1.0-beta.1 — Public beta for macOS 15.7+*

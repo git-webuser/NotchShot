@@ -46,6 +46,9 @@ xcodebuild -exportArchive \
   -exportOptionsPlist ExportOptions.plist
 ```
 
+> **Note:** `ExportOptions.plist` uses `method: development` (Apple Development cert, no Developer ID required).
+> When Developer ID becomes available, use `ExportOptions.DeveloperID.plist` instead.
+
 Проверить подпись:
 ```bash
 codesign --verify --deep --strict --verbose=2 build/export/Stampo.app
@@ -84,7 +87,7 @@ shasum -a 256 "build/Stampo-${VERSION}.dmg"
 ## 6. GitHub Release
 
 1. Push tag: `git tag 0.1.0-beta.1 && git push origin 0.1.0-beta.1`
-2. Create release at [github.com/hex000/Stampo/releases/new](https://github.com/hex000/Stampo/releases/new)
+2. Create release at [github.com/git-webuser/Stampo/releases/new](https://github.com/git-webuser/Stampo/releases/new)
 3. Attach `Stampo-0.1.0-beta.1.dmg`
 4. Release notes template:
 
@@ -104,7 +107,7 @@ Public beta for macOS 15+.
 - Cursor behavior in window picker relies on a private macOS API (may change in future macOS)
 
 ### Compatibility
-- macOS 15 or later
+- macOS 15.7 or later
 - MacBook with notch display (MacBook Pro 14"/16", MacBook Air M2+)
 
 ### Checksum

@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Onboarding was already completed but Screen Recording is not
             // granted (e.g. TCC was reset). Trigger a request so Stampo
             // is registered in System Settings → Screen Recording.
-            DispatchQueue.global(qos: .utility).async {
+            DispatchQueue.main.async {
                 _ = CGRequestScreenCaptureAccess()
             }
         }
