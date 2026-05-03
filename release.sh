@@ -59,7 +59,6 @@ xcodebuild archive \
   -scheme Stampo \
   -configuration Release \
   -archivePath "$ARCHIVE_PATH" \
-  -destination "generic/platform=macOS" \
   -quiet
 
 echo "▸ Exporting..."
