@@ -41,6 +41,7 @@ enum AppSettings {
         static let defaultColorFormat    = "defaultColorFormat"
         // Appearance / Language
         static let settingsAppearance      = "settingsAppearance"
+        static let settingsStyle           = "settingsStyle"
         static let preferredLanguage       = "preferredLanguage"
         // Hotkeys
         static let hotkeyPanelEnabled      = "hotkeyPanelEnabled"
@@ -52,6 +53,11 @@ enum AppSettings {
     }
 
     // MARK: General
+    static var settingsStyle: SettingsStyle {
+        let raw = UserDefaults.standard.string(forKey: Keys.settingsStyle) ?? "toolbar"
+        return SettingsStyle(rawValue: raw) ?? .toolbar
+    }
+
     static var settingsAppearance: SettingsAppearance {
         let raw = UserDefaults.standard.string(forKey: Keys.settingsAppearance) ?? "system"
         return SettingsAppearance(rawValue: raw) ?? .system
@@ -311,6 +317,20 @@ enum SettingsAppearance: String, CaseIterable {
         case .system: return nil
         case .light:  return NSAppearance(named: .aqua)
         case .dark:   return NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
+// MARK: - SettingsStyle
+
+enum SettingsStyle: String, CaseIterable {
+    case toolbar = "toolbar"
+    case sidebar = "sidebar"
+
+    var title: String {
+        switch self {
+        case .toolbar: return String(localized: "Toolbar")
+        case .sidebar: return String(localized: "Sidebar")
         }
     }
 }

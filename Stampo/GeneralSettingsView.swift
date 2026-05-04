@@ -4,6 +4,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.showThumbnailHUD)      private var showThumbnailHUD      = true
     @AppStorage(AppSettings.Keys.thumbnailDismissDelay) private var thumbnailDismissDelay = 3.0
     @AppStorage(AppSettings.Keys.settingsAppearance)    private var settingsAppearance     = SettingsAppearance.system
+    @AppStorage(AppSettings.Keys.settingsStyle)         private var settingsStyle          = SettingsStyle.toolbar
     @AppStorage(AppSettings.Keys.preferredLanguage)     private var preferredLanguage      = "system"
 
     @State private var launchAtLogin = AppSettings.launchAtLoginEnabled
@@ -50,6 +51,19 @@ struct GeneralSettingsView: View {
             }
 
             Section("Appearance") {
+                LabeledContent("Settings layout") {
+                    Picker("", selection: $settingsStyle) {
+                        ForEach(SettingsStyle.allCases, id: \.self) { style in
+                            Text(style.title).tag(style)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .onChange(of: settingsStyle) { _, _ in
+                        SettingsWindowController.shared.reopenWithNewStyle()
+                    }
+                }
+
                 LabeledContent("Settings window theme") {
                     Picker("", selection: $settingsAppearance) {
                         ForEach(SettingsAppearance.allCases, id: \.self) { mode in

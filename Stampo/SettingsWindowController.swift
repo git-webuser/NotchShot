@@ -150,6 +150,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             return
         }
 
+        switch AppSettings.settingsStyle {
+        case .toolbar: openToolbarStyle()
+        case .sidebar: openSidebarStyle()
+        }
+    }
+
+    func reopenWithNewStyle() {
+        window?.close()
+        // windowWillClose sets self.window = nil synchronously before close() returns
+        open()
+    }
+
+    private func openToolbarStyle() {
         let tabController = makeTabViewController()
 
         let win = NSWindow(contentViewController: tabController)
@@ -164,6 +177,27 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.window     = win
 
         tabController.installToolbar(in: win)
+
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openSidebarStyle() {
+        let hosting = NSHostingController(rootView: SidebarSettingsView().managedLocale())
+        hosting.view.widthAnchor.constraint(greaterThanOrEqualToConstant: 520).isActive = true
+        hosting.view.heightAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
+
+        let win = NSWindow(contentViewController: hosting)
+        win.title      = LocaleManager.shared.string("Settings")
+        win.level      = .floating
+        win.styleMask  = [.titled, .closable, .miniaturizable, .resizable]
+        win.titlebarSeparatorStyle = .line
+        win.setContentSize(NSSize(width: 700, height: 480))
+        win.setFrameAutosaveName("StampoSidebarSettingsWindow")
+        win.appearance = AppSettings.settingsAppearance.nsAppearance
+        win.center()
+        win.delegate   = self
+        self.window    = win
 
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
